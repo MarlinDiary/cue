@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Cue: Vocabulary Cards</title>
+<meta name="description" content="用 AI 写词条、配图、朗读，再用间隔复习记住英文单词。Learn English words with AI-written entries, pictures and spaced review.">
+<link rel="icon" href="icon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+:root {
+  color-scheme: light dark;
+  --page: #ffffff;
+  --ink: #1d1d1f;
+  --soft: #6e6e73;
+  --line: #e5e5ea;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --page: #000000; --ink: #f5f5f7; --soft: #98989d; --line: #2c2c2e; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 17px/1.7 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+main { max-width: 680px; margin: 0 auto; padding: 32px 20px 96px; }
+.languages { text-align: right; margin-bottom: 48px; }
+.languages a { color: var(--soft); text-decoration: none; font-size: 15px; }
+.languages a + a::before { content: "·"; margin: 0 8px; }
+.app { text-align: center; margin-bottom: 56px; }
+.app img { width: 112px; height: 112px; display: block; margin: 0 auto 20px; }
+.app h1 { font-size: 34px; line-height: 1.2; letter-spacing: -0.01em; margin: 0; }
+.app p { color: var(--soft); margin: 4px 0 0; }
+.lead { font-size: 19px; }
+h2 { font-size: 21px; line-height: 1.35; margin: 48px 0 12px; }
+h3 { font-size: 17px; margin: 24px 0 4px; }
+p { margin: 0 0 16px; }
+a { color: inherit; text-decoration-color: var(--soft); text-underline-offset: 3px; }
+.privacy { margin-top: 40px; }
+section[lang="en"] { line-height: 1.6; margin-top: 96px; padding-top: 48px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+<nav class="languages"><a href="#zh">中文</a><a href="#en">English</a></nav>
+
+<div class="app">
+  <img src="icon.png" alt="Cue 图标">
+  <h1>Cue</h1>
+  <p>Vocabulary Cards</p>
+</div>
+
+<section id="zh">
+<p class="lead">写下想记住的英文单词、短语或句子，也可以直接用中文问怎么说。Cue 用 AI 写好词条、配一张图、读给你听，再用间隔复习帮你记住。</p>
+
+<h2>常见问题</h2>
+<h3>点数怎么算？</h3>
+<p>一个新词约 1 点（词条和图片），一个问题 0.3 到 0.5 点，别人添加过的词 0.2 点。点数不会过期。也可以在设置里改用自己的 OpenAI 密钥，费用由 OpenAI 直接向你收取。</p>
+<h3>买了点数没有到账？</h3>
+<p>点数通常几秒内到账。没有的话，重新打开 Cue 会自动再试；还是没到，请发邮件给我们。</p>
+<h3>换了手机，或者重装了 Cue？</h3>
+<p>单词和对话存在你的 iCloud 里，会自动回来。点数账户存在 iCloud 钥匙串里，开着 iCloud 钥匙串，点数也会跟着回来。</p>
+
+<h2>联系我们</h2>
+<p>问题、建议和删除数据的请求，请发邮件到 <a href="mailto:hi@protoyard.com">hi@protoyard.com</a>。</p>
+<p class="privacy"><a href="privacy/">隐私政策</a></p>
+</section>
+
+<section id="en" lang="en">
+<p class="lead">Write down the English words, phrases or sentences you want to remember, or ask in Chinese how to say something. Cue writes an entry with AI, draws a picture, reads it aloud, and brings it back for review until it sticks.</p>
+
+<h2>Questions</h2>
+<h3>How do points work?</h3>
+<p>A new word takes about 1 point (its entry and picture), a question 0.3 to 0.5, and a word someone else has added 0.2. Points don’t expire. You can also use your own OpenAI key in Settings, and OpenAI bills you directly.</p>
+<h3>Bought points that haven’t arrived?</h3>
+<p>Points usually arrive within seconds. If they don’t, open Cue again and it tries once more; if they still haven’t, email us.</p>
+<h3>New phone, or reinstalled Cue?</h3>
+<p>Your words and conversations are in your iCloud and come back by themselves. Your points account is in iCloud Keychain, so with iCloud Keychain on, your points come back too.</p>
+
+<h2>Contact</h2>
+<p>Questions, suggestions and requests to delete data: <a href="mailto:hi@protoyard.com">hi@protoyard.com</a>.</p>
+<p class="privacy"><a href="privacy/#en">Privacy Policy</a></p>
+</section>
+</main>
+</body>
+</html>

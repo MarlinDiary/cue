@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Cue 隐私政策 · Privacy Policy</title>
+<meta name="description" content="Cue: Vocabulary Cards 用到哪些数据、发给谁、存在哪里。What data Cue uses, where it goes, and where it’s kept.">
+<link rel="icon" href="../icon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<style>
+:root {
+  color-scheme: light dark;
+  --page: #ffffff;
+  --ink: #1d1d1f;
+  --soft: #6e6e73;
+  --line: #e5e5ea;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --page: #000000; --ink: #f5f5f7; --soft: #98989d; --line: #2c2c2e; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 17px/1.7 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+main { max-width: 680px; margin: 0 auto; padding: 32px 20px 96px; }
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 56px; }
+.brand { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; font-weight: 600; }
+.brand img { width: 32px; height: 32px; }
+.languages a { color: var(--soft); text-decoration: none; font-size: 15px; }
+.languages a + a::before { content: "·"; margin: 0 8px; }
+h1 { font-size: 34px; line-height: 1.2; letter-spacing: -0.01em; margin: 0 0 8px; }
+h2 { font-size: 21px; line-height: 1.35; margin: 48px 0 12px; }
+.date { color: var(--soft); font-size: 15px; margin: 0 0 32px; }
+p, ul { margin: 0 0 16px; }
+ul { padding-left: 1.2em; }
+li { margin: 6px 0; }
+a { color: inherit; text-decoration-color: var(--soft); text-underline-offset: 3px; }
+section[lang="en"] { line-height: 1.6; margin-top: 96px; padding-top: 48px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+<div class="bar">
+  <a class="brand" href="../"><img src="../icon.png" alt="">Cue</a>
+  <nav class="languages"><a href="#zh">中文</a><a href="#en">English</a></nav>
+</div>
+
+<section id="zh">
+<h1>Cue 隐私政策</h1>
+<p class="date">2026 年 10 月 10 日生效</p>
+<p>Cue: Vocabulary Cards（下称“Cue”）是一款记英文单词的 App。这份政策说明 Cue 用到哪些数据、发给谁、存在哪里。</p>
+
+<h2>概括</h2>
+<ul>
+<li>Cue 没有广告，不追踪你，不使用任何第三方分析或广告工具，也不出售任何数据。</li>
+<li>你的单词、复习记录和对话保存在你的设备和你自己的 iCloud 中，开发者看不到。</li>
+<li>Cue 用 OpenAI 的模型写词条、画图、朗读和回答问题，所以你添加的词和提的问题会发给 OpenAI。发送之前，Cue 会先征得你的同意。</li>
+<li>使用点数时，请求经过 Cue 的服务器。服务器只记点数的账，不记你写了什么、问了什么。</li>
+</ul>
+
+<h2>保存在你的设备和 iCloud 中的</h2>
+<p>你添加的单词及其词条、图片和复习记录，以及你和 AI 的对话，保存在你的设备上，并通过 Apple 的 iCloud（CloudKit 私有数据库）同步到登录同一 Apple 账户的其他设备。这些数据只存在你的 iCloud 账户里，开发者无法读取。在 Cue 中删除单词或对话，iCloud 中的也会一并删除。</p>
+
+<h2>发给 OpenAI 的</h2>
+<p>为了写词条、画图、朗读和回答问题，Cue 会把以下内容发给 OpenAI：</p>
+<ul>
+<li>你添加的单词、短语或句子，以及为它配图用的文字描述；</li>
+<li>你输入新词时已经输入的内容，连同墙上已有的单词和释义，用来判断这个词是否已经添加过；</li>
+<li>你提的问题和之前的对话，以及与之相关的内容：问整面墙时是墙上的单词，问某个词时是这个词的词条；</li>
+<li>要朗读的文字。</li>
+</ul>
+<p>OpenAI 按照它的 API 数据政策处理这些内容：不用来训练模型，为监测滥用最多保留 30 天，之后删除。详见 <a href="https://developers.openai.com/api/docs/guides/your-data">OpenAI 的说明</a>。</p>
+<p>使用点数时，这些内容经 Cue 的服务器转交给 OpenAI，OpenAI 不知道是谁发送的。使用你自己的 OpenAI 密钥时，内容从你的设备直接发给 OpenAI，不经过 Cue 的服务器，适用你与 OpenAI 之间的条款；密钥只保存在这台设备的钥匙串中。</p>
+
+<h2>Cue 的服务器保存的</h2>
+<p>以下只涉及使用点数的情况；使用自己的密钥时，Cue 的服务器不参与。</p>
+<p><strong>点数账户。</strong>使用点数需要一个账户。账户由 App 自动生成：一个随机编号和一个密码，保存在你的 iCloud 钥匙串中。无需注册，账户不包含你的姓名、邮箱、电话号码或 Apple 账户信息。服务器为它保存：</p>
+<ul>
+<li>点数余额；</li>
+<li>账目：每次购买、退款和使用点数的时间、类型（例如词条、图片、提问）和数量，不包括你写了什么、问了什么；</li>
+<li>购买记录：App Store 交易编号、所买的点数包、购买时间，以及是否已退款。付款由 Apple 处理，Cue 接触不到你的付款信息。</li>
+</ul>
+<p><strong>共享词库。</strong>一个词第一次以正确的拼写原样添加时，写好的词条和图片会保存下来；之后有人添加同一个词，就直接使用，不再重新生成。朗读过的文字的语音也这样保存。词库只按内容本身保存，不记录是谁添加的。拼错的词、提问，以及由中文输入得到的词条，不会进入词库。</p>
+<p><strong>日志。</strong>Cue 的服务器不保存请求日志；出错时会记下错误信息，几天后自动删除。服务器运行在 Cloudflare 上，Cloudflare 在传送请求时会处理 IP 地址等网络信息，详见 <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare 的隐私政策</a>。</p>
+
+<h2>Cue 不收集的</h2>
+<p>Cue 不收集你的姓名、邮箱、电话号码、位置、通讯录、照片或广告标识符，不把你的数据用于广告，也不与数据经纪商分享。</p>
+
+<h2>撤回同意与删除数据</h2>
+<ul>
+<li>Cue 只在你使用 AI 功能时发送内容：输入或添加单词、重写或重画、朗读、提问。不使用这些功能，就不会发送。</li>
+<li>单词和对话：在 Cue 中删除即可，iCloud 中的也会删除。</li>
+<li>点数账户：发邮件到 <a href="mailto:hi@protoyard.com">hi@protoyard.com</a>，写明一次购买的日期和点数包（或 App Store 收据上的订单号），我们会删除这个账户及其账目和购买记录，剩余点数随之作废。</li>
+<li>共享词库中的词条、图片和语音不与任何人关联，因此无法按人删除。</li>
+</ul>
+
+<h2>政策变更</h2>
+<p>这份政策如有变更，我们会更新本页，并修改顶部的日期。</p>
+
+<h2>联系我们</h2>
+<p><a href="mailto:hi@protoyard.com">hi@protoyard.com</a></p>
+</section>
+
+<section id="en" lang="en">
+<h1>Cue Privacy Policy</h1>
+<p class="date">Effective October 10, 2026</p>
+<p>Cue: Vocabulary Cards (“Cue”) is an app for learning English words. This policy explains what data Cue uses, where it goes, and where it’s kept.</p>
+
+<h2>In short</h2>
+<ul>
+<li>Cue has no ads, doesn’t track you, uses no third-party analytics or advertising tools, and sells no data.</li>
+<li>Your words, reviews and conversations are kept on your devices and in your own iCloud, where the developer can’t see them.</li>
+<li>Cue writes entries, draws pictures, reads aloud and answers questions with OpenAI’s models, so the words you add and the questions you ask are sent to OpenAI. Cue asks for your permission before anything is sent.</li>
+<li>With points, requests go through Cue’s server, which keeps an account of your points, not what you wrote or asked.</li>
+</ul>
+
+<h2>On your devices and in your iCloud</h2>
+<p>The words you add, with their entries, pictures and review history, and your conversations with AI are kept on your device and synced through Apple’s iCloud (a CloudKit private database) to your other devices signed in to the same Apple Account. They stay in your iCloud account, where the developer can’t read them. Deleting a word or a conversation in Cue deletes it from iCloud too.</p>
+
+<h2>What is sent to OpenAI</h2>
+<p>To write entries, draw pictures, read aloud and answer questions, Cue sends OpenAI:</p>
+<ul>
+<li>the words, phrases or sentences you add, and the description a picture is drawn from;</li>
+<li>while you type a new word, what you’ve typed, with the words on your wall and their meanings, to tell whether you’ve added it already;</li>
+<li>your questions and the conversation so far, with what they’re about: the words on your wall when you ask about the wall, a word’s entry when you ask about that word;</li>
+<li>text to be read aloud.</li>
+</ul>
+<p>OpenAI handles this under its API data policy: it isn’t used to train models, and it’s kept for up to 30 days to monitor abuse, then deleted. See <a href="https://developers.openai.com/api/docs/guides/your-data">OpenAI’s explanation</a>.</p>
+<p>With points, it goes to OpenAI through Cue’s server, and OpenAI doesn’t know whom it came from. With your own OpenAI key, it goes straight from your device to OpenAI, never through Cue’s server, under your own terms with OpenAI; the key is kept only in this device’s keychain.</p>
+
+<h2>What Cue’s server keeps</h2>
+<p>This applies only when you use points; with your own key, Cue’s server isn’t involved.</p>
+<p><strong>Your points account.</strong> Points need an account, which the app makes for you: a random number and a secret, kept in your iCloud Keychain. There’s nothing to sign up for, and the account holds no name, email, phone number or Apple Account details. For it, the server keeps:</p>
+<ul>
+<li>the points balance;</li>
+<li>its history: when points were bought, refunded or used, for what kind of request (such as an entry, a picture or a question), and how many — not what you wrote or asked;</li>
+<li>purchases: the App Store transaction number, the pack, the time, and whether it was refunded. Apple handles payment; Cue never sees your payment details.</li>
+</ul>
+<p><strong>The shared library.</strong> When a word is added for the first time as it is, spelled correctly, its entry and picture are kept and given to the next person who adds the same word, instead of being made again. The voice of text read aloud is kept the same way. The library is kept by the words themselves, with no record of who added them. Misspellings, questions, and entries found from something typed in Chinese don’t go into it.</p>
+<p><strong>Logs.</strong> Cue’s server keeps no log of requests; when something goes wrong, it notes the error, and the note is deleted after a few days. The server runs on Cloudflare, which processes network information such as IP addresses to deliver requests; see <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare’s privacy policy</a>.</p>
+
+<h2>What Cue doesn’t collect</h2>
+<p>Cue doesn’t collect your name, email, phone number, location, contacts, photos or advertising identifier, doesn’t use your data for advertising, and doesn’t share it with data brokers.</p>
+
+<h2>Withdrawing consent and deleting data</h2>
+<ul>
+<li>Cue sends content only when you use its AI features: typing or adding a word, rewriting or redrawing one, listening to a reading, or asking a question. If you don’t, nothing is sent.</li>
+<li>Words and conversations: delete them in Cue, and their copies in iCloud go too.</li>
+<li>Your points account: email <a href="mailto:hi@protoyard.com">hi@protoyard.com</a> with the date and pack of a purchase (or the order ID on its App Store receipt). We’ll delete the account with its history and purchases; any points left go with it.</li>
+<li>The shared library’s entries, pictures and voices aren’t linked to anyone, so they can’t be deleted per person.</li>
+</ul>
+
+<h2>Changes</h2>
+<p>If this policy changes, we’ll update this page and the date at the top.</p>
+
+<h2>Contact</h2>
+<p><a href="mailto:hi@protoyard.com">hi@protoyard.com</a></p>
+</section>
+</main>
+</body>
+</html>
