@@ -1,0 +1,37 @@
+# Cue's server: the points the app sells, the shared word library, and the requests it makes to OpenAI for the app.
+name = "cue-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# The prompts are the app's own files (Cue/Resources/Prompts), so both ask in the same words.
+[[rules]]
+type = "Text"
+globs = ["**/*.txt"]
+fallthrough = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cue"
+# Made by `wrangler d1 create cue` (2026-10-10, region Oceania).
+database_id = "558fcfec-13ac-43fe-b234-74bab707abb7"
+
+[[r2_buckets]]
+binding = "LIBRARY"
+bucket_name = "cue-library"
+
+[vars]
+BUNDLE_ID = "com.chenye.cue"
+# Local development only (.dev.vars turns them on): answers made up here instead of asking OpenAI, purchases signed
+# by Xcode's StoreKit testing, and points given away.
+MOCK_OPENAI = "0"
+ALLOW_XCODE_TRANSACTIONS = "0"
+DEV_GRANTS = "0"
+
+# Errors only, no record of each request: the privacy policy (https://chenyeni.com/cue/privacy/) says the server keeps
+# no log of requests. `npx wrangler tail` still shows them live.
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false

@@ -1,0 +1,3 @@
+Each entry of an English learner's dictionary for Chinese speakers has a picture brief: {{pictureBrief}}
+
+The image service's safety system turned down the picture for the brief below, for what the brief asks for or for what the picture came out as: it judges the finished picture as well as the brief, so a picture much like the one turned down is turned down again. Write a new brief for the same word that shows its meaning as directly, as a clearly different picture with nothing the safety system could object to. Safety systems turn down anything that could be read as sexual, violent, hateful, self-harming or dangerous, a real person, or a likeness of an existing character, brand or other protected work.
