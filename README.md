@@ -10,3 +10,7 @@ picture for it. Words come back for review as cards, scheduled by FSRS-6.
 - `server/`: the Cloudflare Worker behind points: accounts, purchases, and the shared library of entries and pictures.
 - `site/`: the support and privacy pages, published to the `gh-pages` branch by `tools/publish_site.sh`.
 - `tools/`: picture generation, model comparison, and the App Store export options.
+
+## License
+
+Apache License 2.0: see [LICENSE](LICENSE).
