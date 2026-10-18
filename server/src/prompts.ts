@@ -10,6 +10,9 @@ import chatWall from '../../Cue/Resources/Prompts/chat-wall.txt';
 import chatWord from '../../Cue/Resources/Prompts/chat-word.txt';
 import decideInstructions from '../../Cue/Resources/Prompts/decide-instructions.txt';
 import speechInstructions from '../../Cue/Resources/Prompts/speech-instructions.txt';
+import offerInstructions from '../../Cue/Resources/Prompts/offer-instructions.txt';
+import offerSchema from '../../Cue/Resources/Prompts/offer-schema.txt';
+import deckTool from '../../Cue/Resources/Prompts/deck-tool.txt';
 
 /** A prompt with its {{placeholders}} filled in, as the app fills them (`Prompts.text`). */
 function fill(text: string, values: Record<string, string>): string {
@@ -29,4 +32,11 @@ export const prompts = {
   },
   decideInstructions,
   speechInstructions,
+  /** For what an answer offers to keep: the words already kept, which it never offers. */
+  offer(saved: string[]): string {
+    return fill(offerInstructions, { saved: saved.join('\n') });
+  },
+  offerSchema: JSON.parse(offerSchema) as unknown,
+  /** How AI hands over a deck of the wall's cards in the wall's conversation (`show_deck`). */
+  deckTool: JSON.parse(deckTool) as unknown,
 };

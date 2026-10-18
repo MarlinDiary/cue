@@ -28,7 +28,19 @@ import SwiftUI
 /// and the page closes back into it with ✕ (user, 2026-10-09: "变成这个卡片的长按…自动放大成整页…和首页一样的效果").
 /// Every ✕ is at the top left ("左右叉叉都统一在左上角吧"); the menu at the top right leaves the word out of review from
 /// now on, when the card falls off the deck.
+///
+/// A deck Ask AI handed over (`Chat.Deck`) is reviewed just the same, among its cards alone: endlessly, the card most
+/// likely forgotten next, every answer counted as review (user, 2026-10-18: "跟…最主要的复习卡片一样的，是处于一个无限刷
+/// 的状态的。但是有进度，建议直接复用"; it first ended once each card was remembered). Its ring is the share of its cards
+/// remembered today, so it starts where the day's review left them, and goes back as one is forgotten.
 struct ReviewView: View {
+    /// The deck handed over that is reviewed, or none for review itself.
+    var handed: Chat.Deck?
+
+    init(deck: Chat.Deck? = nil) {
+        handed = deck
+    }
+
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -160,6 +172,9 @@ struct ReviewView: View {
                     ToolbarItem(placement: .topBarTrailing) { menu }
                 }
             }
+            // A deck's name over it; review itself has none.
+            .navigationTitle(handed?.title ?? "")
+            .navigationBarTitleDisplayMode(.inline)
         }
         // The word's page, zoomed out of the card and closed back into it: the page alone, to read.
         .fullScreenCover(item: $opened) { card in
@@ -200,7 +215,13 @@ struct ReviewView: View {
         .onAppear {
             guard !loaded else { return }
             let all = (try? context.fetch(FetchDescriptor<Word>(sortBy: [SortDescriptor(\.createdAt)]))) ?? []
-            pool = all.filter { $0.entryData != nil && !$0.hiddenFromReview }
+            if let handed {
+                // Its cards still on the wall, whether or not they are left out of review.
+                let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                pool = handed.words.compactMap { byID[$0] }.filter { $0.entryData != nil }
+            } else {
+                pool = all.filter { $0.entryData != nil && !$0.hiddenFromReview }
+            }
             words = Dictionary(pool.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             states = words.compactMapValues(\.recall)
             measure()
@@ -499,6 +520,15 @@ struct ReviewView: View {
     /// 可增可退？全完成就多个check？").
     private func measure() {
         let now = Date.now
+        // A deck's: the share of its cards remembered today.
+        if handed != nil {
+            let start = Recall.dayStart(at: now)
+            let done = pool.filter { word in
+                states[word.id].map { $0.reviewedAt >= start && $0.forgotten != true } ?? false
+            }.count
+            progress = pool.isEmpty ? 1 : Double(done) / Double(pool.count)
+            return
+        }
         let start = Recall.dayStart(at: now)
         var done = 0, due = 0
         for word in pool {

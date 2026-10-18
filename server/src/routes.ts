@@ -24,6 +24,7 @@ const BRIEF_HOLD = 10_000;
 const CHAT_HOLD = 30_000;
 const SPEECH_HOLD = 3_000;
 const DECIDE_HOLD = 2_000;
+const OFFER_HOLD = 2_000;
 
 const insufficient = () => new HttpError(402, 'insufficient_points', 'Not enough points left.');
 
@@ -176,16 +177,28 @@ export async function brief(request: Request, env: Env, account: Account): Promi
   return upstreamError(upstream.status, answer, balance);
 }
 
-/** An answer in a conversation, streamed as OpenAI streams it. The app sends what the conversation is about. */
+/**
+ * An answer in a conversation, streamed as OpenAI streams it. The app sends what the conversation is about. In the wall's
+ * conversation AI can hand over a deck of the wall's cards (`show_deck`); the decks it handed over come back with the
+ * conversation as the calls it made.
+ */
 export async function chat(request: Request, env: Env, ctx: ExecutionContext, account: Account): Promise<Response> {
   const body: any = await request.json();
   const kind = body.kind === 'wall' ? 'wall' : body.kind === 'word' ? 'word' : null;
   if (!kind || !Array.isArray(body.lines) || body.lines.length > 5_000 || !Array.isArray(body.messages)
-    || body.messages.length === 0 || body.messages.length > 60) {
+    || body.messages.length === 0 || body.messages.length > 180) {
     throw new HttpError(400, 'bad_request', 'The conversation is missing or too long.');
   }
   const lines = body.lines.map((line: unknown) => text(line, 'line', 4_000));
   const messages = body.messages.map((message: any) => {
+    if (message?.type === 'function_call' && message.name === 'show_deck') {
+      return { type: 'function_call', call_id: text(message.call_id, 'call', 200), name: 'show_deck',
+        arguments: text(message.arguments, 'arguments', 20_000) };
+    }
+    if (message?.type === 'function_call_output') {
+      return { type: 'function_call_output', call_id: text(message.call_id, 'call', 200),
+        output: text(message.output, 'output', 400) };
+    }
     if (message?.role !== 'user' && message?.role !== 'assistant') throw new HttpError(400, 'bad_request', 'Unknown role.');
     return { role: message.role, content: text(message.content, 'message', 12_000) };
   });
@@ -197,6 +210,7 @@ export async function chat(request: Request, env: Env, ctx: ExecutionContext, ac
     stream: true,
     instructions: prompts.chat(kind, lines),
     input: messages,
+    ...(kind === 'wall' ? { tools: [prompts.deckTool], parallel_tool_calls: false } : {}),
   });
   if (!upstream.ok) {
     const balance = await settle(env, account.id, CHAT_HOLD, 0, 'chat', 0, 'failed');
@@ -268,6 +282,36 @@ export async function decide(request: Request, env: Env, account: Account): Prom
     : 0;
   const balance = await settle(env, account.id, DECIDE_HOLD, cost, 'decide', cost);
   return upstreamError(upstream.status, answer, balance);
+}
+
+/** The words an answer just written offers to keep on the wall, answered as OpenAI answers. */
+export async function offer(request: Request, env: Env, account: Account): Promise<Response> {
+  const body: any = await request.json();
+  const question = text(body.question, 'question', 12_000);
+  const answer = text(body.answer, 'answer', 24_000);
+  if (!Array.isArray(body.saved) || body.saved.length > 5_000) {
+    throw new HttpError(400, 'bad_request', 'The saved words are missing or too many.');
+  }
+  const saved = body.saved.map((word: unknown) => text(word, 'saved word', 400));
+  if (!(await reserve(env, account.id, OFFER_HOLD))) throw insufficient();
+  const upstream = await openai(env, 'responses', {
+    model: MODELS.offer,
+    reasoning: { effort: 'low' },
+    store: false,
+    instructions: prompts.offer(saved),
+    input: `Question:\n${question}\n\nAnswer:\n${answer}`,
+    text: { format: { type: 'json_schema', name: 'offers', strict: true, schema: prompts.offerSchema } },
+  });
+  const reply = await upstream.text();
+  let usage;
+  try {
+    usage = JSON.parse(reply)?.usage;
+  } catch {
+    usage = undefined;
+  }
+  const cost = upstream.ok ? textCost(MODELS.offer, usage) : 0;
+  const balance = await settle(env, account.id, OFFER_HOLD, cost, 'offer', cost);
+  return upstreamError(upstream.status, reply, balance);
 }
 
 /** A purchase made in the app, credited once: the app sends the transaction the App Store signed. */

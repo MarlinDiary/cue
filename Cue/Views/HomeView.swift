@@ -361,6 +361,9 @@ struct HomeView: View {
             await Points.shared.refresh()
             await debugLaunch()
         }
+        // The conversations opened from the wall and from its cards' pages put the words their answers offer on it, as
+        // if typed into its field.
+        .environment(\.keepOnWall, { text in Task { await add(text) } })
     }
 
     /// The keyboard is going: its room goes as soon as no finger is on the wall and the wall isn't pulled past its top,

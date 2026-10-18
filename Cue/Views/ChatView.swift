@@ -33,6 +33,15 @@ struct ChatView: View {
     @State private var asked: Chat.Message.ID?
     /// What stands between a question and AI: agreeing to it, points, or a key.
     @State private var gate: AIGate?
+    /// The word an answer offered that waits with the gate, tapped while it stood (`keep`); none while a question waits.
+    @State private var gatedOffer: String?
+    /// The offered words tapped since the conversation was opened, as compared (`EntryStyle.key`): ticked at the tap,
+    /// before their cards are in.
+    @State private var keeping: Set<String> = []
+    /// Puts a word on the wall as if it had been typed there: the wall's, which the conversation was opened from.
+    @Environment(\.keepOnWall) private var keepOnWall
+    /// The deck an answer handed over that is being reviewed (`DeckCapsule`).
+    @State private var reviewing: Chat.Deck?
     /// Whether the keyboard is going as a question is asked: the question goes up to the top with it (`riseWithKeyboard`).
     @State private var risesWithKeyboard = false
     /// Whether the conversation is laid out: from just after the page began to come up (`onAppear`).
@@ -110,6 +119,11 @@ struct ChatView: View {
         let split = asked.flatMap { id in messages.firstIndex { $0.id == id } } ?? messages.endIndex
         // Whether there is a question asked since the conversation was opened, with its room under it.
         let kept = split < messages.endIndex
+        // The words answers have offered that are on the wall or on their way to it, whose capsules show ticks: the
+        // wall is read only with offers in the conversation, so it isn't laid out again each time a card is written.
+        let onWall = messages.contains { $0.offers != nil } ? wallKeys.union(keeping) : keeping
+        // The wall's cards, for the decks answers handed over: read only with a deck in the conversation.
+        let wall = WallNow(keys: onWall, ids: messages.contains { $0.deck != nil } ? Set(words.map(\.id)) : [])
         // Read out here, around everything, without the keyboard: the screen, which doesn't change as the keyboard
         // moves. The keyboard is `keyboardRoom`.
         GeometryReader { screen in
@@ -121,7 +135,7 @@ struct ChatView: View {
             let screenTop = screen.safeAreaInsets.top
             NavigationStack {
                 ScrollView {
-                    if shown { transcript(messages, answering: answering, split: split, room: room) }
+                    if shown { transcript(messages, answering: answering, split: split, room: room, wall: wall) }
                 }
                 .contentMargins(.horizontal, Self.side, for: .scrollContent)
                 // Under the navigation bar in margins of its own, not the safe area: SwiftUI keeps a scroll view's
@@ -288,8 +302,19 @@ struct ChatView: View {
         .ignoresSafeArea(.keyboard, edges: .bottom)
         // The caret in the text's own colour, never the system's blue.
         .tint(.primary)
+        // A deck an answer handed over, reviewed on its own, coming up as review does from the wall's Review button. Not
+        // zoomed out of its capsule: on the way back the page was squeezed into the capsule's shape, its card and the
+        // capsule's name drawn over each other, both stretched.
+        .fullScreenCover(item: $reviewing) { deck in
+            ReviewView(deck: deck)
+        }
         .sheet(item: $gate) { gate in
-            AIGateSheet(gate: gate) { Task { await Points.shared.refresh(); send(draft.wrappedValue) } }
+            AIGateSheet(gate: gate) {
+                Task {
+                    await Points.shared.refresh()
+                    if let word = gatedOffer { keep(word) } else { send(draft.wrappedValue) }
+                }
+            }
         }
         // Following an answer down ends with it.
         .onChange(of: answering) { if !answering { following = false } }
@@ -308,6 +333,16 @@ struct ChatView: View {
                     if !messages.isEmpty { position.scrollTo(edge: .bottom) }
                 }
             }
+            #if DEBUG
+            // `-askAI <question>`: asked as the conversation first opens, as if typed and sent (it costs what a
+            // question costs).
+            if let question = UserDefaults.standard.string(forKey: "askAI"), !Self.askedAtLaunch {
+                Self.askedAtLaunch = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { send(question) }
+            }
+            // `-reoffer YES`: what each answer offers asked again, with the prompt as it is now (`Chats.reoffer`).
+            if UserDefaults.standard.bool(forKey: "reoffer") { chats.reoffer(in: key, saved: words.map(\.text)) }
+            #endif
             // Opened again while an answer is being written: its question back at the top, the answer going on
             // under it, as it was left. The end first, then the question.
             if chats.answering.contains(key), let question = messages.last(where: { $0.role == .user })?.id {
@@ -331,15 +366,16 @@ struct ChatView: View {
     ///
     /// Laid out at the width it has once on the screen, from the first frame: the page comes up widening from nothing
     /// to the screen's width (iOS 27), and laid out at each width, all its text was set again on every frame of it.
-    private func transcript(_ messages: [Chat.Message], answering: Bool, split: Int, room: CGFloat) -> some View {
+    private func transcript(_ messages: [Chat.Message], answering: Bool, split: Int, room: CGFloat,
+                            wall: WallNow) -> some View {
         // A question sits close over its answer, and further from the answer before it, so the
         // conversation reads as questions with their answers rather than an even run of messages.
         VStack(alignment: .leading, spacing: 0) {
             ForEach(messages[..<split]) { message in
-                row(message, writing: false, vanishing: vanishing)
+                row(message, writing: false, vanishing: vanishing, wall: wall)
                     .padding(.top, Self.gap(above: message, first: messages.first?.id))
             }
-            question(answering: answering, messages: messages, split: split, room: room)
+            question(answering: answering, messages: messages, split: split, room: room, wall: wall)
         }
         // As wide as the scroll view offers, the column running past it while the page widens: content wider than the
         // scroll view took no scroll to its end.
@@ -360,12 +396,13 @@ struct ChatView: View {
     /// The question last asked and what follows it, kept at least `room` tall; or, with none, why the last answer
     /// didn't come, if it didn't.
     @ViewBuilder
-    private func question(answering: Bool, messages: [Chat.Message], split: Int, room: CGFloat) -> some View {
+    private func question(answering: Bool, messages: [Chat.Message], split: Int, room: CGFloat,
+                          wall: WallNow) -> some View {
         if split < messages.endIndex {
             VStack(alignment: .leading, spacing: Self.answerGap) {
                 ForEach(messages[split...]) { message in
                     row(message, writing: answering && message.id == messages.last?.id,
-                        vanishing: vanishing)
+                        vanishing: vanishing, wall: wall)
                 }
                 failure
             }
@@ -539,6 +576,8 @@ struct ChatView: View {
     /// Space between a question and its answer, and above a question.
     private static let answerGap: CGFloat = 20
     private static let questionGap: CGFloat = 36
+    /// Space between an answer and the words it offers under it.
+    private static let offerGap: CGFloat = 22
 
     /// The space above a message: an answer's, close under its question; a question's, further from the answer before
     /// it; none above the first.
@@ -571,6 +610,13 @@ struct ChatView: View {
         }
     }
 
+    /// The wall as the conversation shows it: the words on it, or on their way to it, as compared (`EntryStyle.key`),
+    /// for the words answers offer; its cards, for the decks they hand over, which count only those still on it.
+    private struct WallNow {
+        var keys: Set<String>
+        var ids: Set<UUID>
+    }
+
     /// Where the conversation is scrolled to, as `onScrollGeometryChange` reports it.
     private struct Ends: Equatable {
         /// Scrolled to its end, give or take a few points.
@@ -580,33 +626,53 @@ struct ChatView: View {
     }
 
     @ViewBuilder
-    private func row(_ message: Chat.Message, writing: Bool, vanishing: Date?) -> some View {
+    private func row(_ message: Chat.Message, writing: Bool, vanishing: Date?, wall: WallNow) -> some View {
         if let vanishing {
             TimelineView(.animation) { context in
-                vanishingRow(message, elapsed: context.date.timeIntervalSince(vanishing))
+                vanishingRow(message, elapsed: context.date.timeIntervalSince(vanishing), wall: wall)
             }
         } else {
-            row(message, writing: writing)
+            row(message, writing: writing, wall: wall)
         }
     }
 
     @ViewBuilder
-    private func row(_ message: Chat.Message, writing: Bool) -> some View {
+    private func row(_ message: Chat.Message, writing: Bool, wall: WallNow) -> some View {
         switch message.role {
         case .user:
             question(Text(message.text))
                 .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
                 .contextMenu { copy(message.text) }
         case .assistant:
-            if message.text.isEmpty {
+            if message.text.isEmpty && message.deck == nil {
                 // Until its first words come.
                 ThinkingText()
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 // A long press selects words in it once it is written (`SelectableText`), rather than opening a
-                // menu of its own.
-                StreamedText(text: message.text, writing: writing)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // menu of its own. The deck it hands over and the words it offers to keep come in under it once
+                // they are known.
+                VStack(alignment: .leading, spacing: 0) {
+                    if !message.text.isEmpty {
+                        StreamedText(text: message.text, writing: writing)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if let deck = message.deck, !writing {
+                        let count = deck.words.filter(wall.ids.contains).count
+                        if count > 0 {
+                            Unfolding(since: chats.dealtAt[message.id]) {
+                                DeckCapsule(title: deck.title, count: count) { reviewing = deck }
+                                    .padding(.top, message.text.isEmpty ? 0 : Self.offerGap)
+                            }
+                        }
+                    }
+                    if let offers = message.offers, !writing, keepOnWall != nil {
+                        Unfolding(since: chats.offeredAt[message.id]) {
+                            OfferCapsules(offers: offers, onWall: wall.keys, onKeep: keep)
+                                .padding(.top, Self.offerGap)
+                        }
+                    }
+                }
             }
         }
     }
@@ -624,22 +690,41 @@ struct ChatView: View {
     /// A message going out of sight as the conversation is deleted, `elapsed` seconds in (`VanishRenderer`): a
     /// question's bubble fading as its words go, an answer set as it was, so nothing moves.
     @ViewBuilder
-    private func vanishingRow(_ message: Chat.Message, elapsed: TimeInterval) -> some View {
+    private func vanishingRow(_ message: Chat.Message, elapsed: TimeInterval, wall: WallNow) -> some View {
         let renderer = VanishRenderer(elapsed: elapsed)
         switch message.role {
         case .user:
             question(Text(message.text).textRenderer(renderer),
                      fill: 1 - Easing.smooth((elapsed - VanishRenderer.spread / 2) / VanishRenderer.fade))
         case .assistant:
-            if message.text.isEmpty {
+            if message.text.isEmpty && message.deck == nil {
                 ThinkingText()
                     .opacity(1 - Easing.smooth(elapsed / VanishRenderer.fade))
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                MixedText(message.text)
-                    .lineHeight(.exact(points: lineHeight))
-                    .textRenderer(renderer)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // What came under it goes with its last characters.
+                let after = 1 - Easing.smooth((elapsed - VanishRenderer.spread) / VanishRenderer.fade)
+                VStack(alignment: .leading, spacing: 0) {
+                    if !message.text.isEmpty {
+                        MixedText(message.text)
+                            .lineHeight(.exact(points: lineHeight))
+                            .textRenderer(renderer)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if let deck = message.deck {
+                        let count = deck.words.filter(wall.ids.contains).count
+                        if count > 0 {
+                            DeckCapsule(title: deck.title, count: count) {}
+                                .padding(.top, message.text.isEmpty ? 0 : Self.offerGap)
+                                .opacity(after)
+                        }
+                    }
+                    if let offers = message.offers, keepOnWall != nil {
+                        OfferCapsules(offers: offers, onWall: wall.keys, onKeep: { _ in })
+                            .padding(.top, Self.offerGap)
+                            .opacity(after)
+                    }
+                }
             }
         }
     }
@@ -669,6 +754,7 @@ struct ChatView: View {
         // The question waits in the field while the user agrees to AI, tops up their points or enters a key.
         if let stop = AIGate.check(needing: Points.question) {
             focused = false
+            gatedOffer = nil
             gate = stop
             return
         }
@@ -684,10 +770,35 @@ struct ChatView: View {
         }
     }
 
+    /// Puts a word an answer offers on the wall, as if it had been typed into the wall's field; a word the wall hasn't
+    /// got needs AI, and waits while the user agrees to AI, tops up their points or enters a key.
+    private func keep(_ word: String) {
+        guard let keepOnWall else { return }
+        if !wallKeys.contains(EntryStyle.key(word)), let stop = AIGate.check(needing: Points.newWord) {
+            focused = false
+            gatedOffer = word
+            gate = stop
+            return
+        }
+        gatedOffer = nil
+        keeping.insert(EntryStyle.key(word))
+        keepOnWall(word)
+    }
+
+    /// The wall's words and what was typed for them, as compared (`EntryStyle.key`).
+    private var wallKeys: Set<String> {
+        Set(words.flatMap { [$0.text, $0.request].compactMap { $0 }.map(EntryStyle.key) })
+    }
+
+    #if DEBUG
+    /// Whether `-askAI` has asked its question in this launch.
+    private static var askedAtLaunch = false
+    #endif
+
     private func ask(_ question: String) {
         let first = chats.messages(in: key).isEmpty
         lifting = first
-        asked = chats.send(question, in: key, context: context)
+        asked = chats.send(question, in: key, context: context, saved: words.map { (text: $0.text, id: $0.id) })
         // The question goes up with the keyboard as it goes (`riseWithKeyboard`); without one on the screen, by itself.
         risesWithKeyboard = keyboardUp && !first
         focused = false
@@ -704,6 +815,174 @@ struct ChatView: View {
             // animation, and in a conversation shorter than the screen the rise found nowhere to go.
             DispatchQueue.main.async { withAnimation(Self.rise) { position.scrollTo(id: asked, anchor: .top) } }
         }
+    }
+}
+
+/// What comes in under an answer once it is written, growing from nothing to its height and fading in, `since` it came:
+/// the room it takes grows on every frame, laid out each time, so a conversation kept at its end goes up with it, as with
+/// an answer being written. Brought in in an animation, it left such a conversation where it was, with the words under the
+/// bar (SwiftUI put off the scroll view's new size, and an animated scroll to the end was undone), and without one the
+/// conversation jumped up by their height in a frame. Already there when the conversation is opened, it is just there.
+private struct Unfolding<Content: View>: View {
+    var since: Date?
+    var content: Content
+    /// How tall it is, grown.
+    @State private var height: CGFloat = 0
+    @State private var grown: Bool
+    @State private var shown: Bool
+
+    init(since: Date?, @ViewBuilder content: () -> Content) {
+        self.since = since
+        self.content = content()
+        let done = since.map { Date.now.timeIntervalSince($0) >= Self.growing } ?? true
+        _grown = State(initialValue: done)
+        _shown = State(initialValue: done)
+    }
+
+    var body: some View {
+        // Read here rather than only in the timeline's closure, which then never saw it change.
+        let height = height
+        // The room it takes: a copy of it out of sight, which never changes its size. What is seen lies over it, outside
+        // the timeline: drawn in it, once the timeline had stopped it was left as it was, and the words tapped never
+        // took their ticks.
+        TimelineView(.animation(paused: grown)) { context in
+            let t = since.map { context.date.timeIntervalSince($0) } ?? .infinity
+            content
+                .hidden()
+                .accessibilityHidden(true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { self.height = $0 }
+                .frame(height: t >= Self.growing ? nil : height * Easing.spring(t, duration: Self.duration),
+                       alignment: .top)
+        }
+        .overlay(alignment: .top) {
+            content.opacity(shown ? 1 : 0)
+        }
+        .onAppear {
+            if !shown { withAnimation(.smooth(duration: Self.duration)) { shown = true } }
+        }
+        .task(id: since) {
+            guard let since, !grown else { return }
+            try? await Task.sleep(for: .seconds(max(0, Self.growing - Date.now.timeIntervalSince(since)) + 0.05))
+            grown = true
+        }
+    }
+
+    private static var duration: Double { 0.5 }
+    /// How long it takes to grow: the spring is within half a percent of its height by then.
+    private static var growing: Double { duration * 1.3 }
+}
+
+/// A deck an answer handed over (`Chat.Deck`), under it: one glass capsule, as the words answers offer are, with the
+/// deck's name and how many of its cards are on the wall; tapped, it opens review of those cards alone (user,
+/// 2026-10-18: after eight ways of showing its cards beside the answer, the last two "丑", chose "一颗胶囊"). The stacked
+/// cards are review's symbol, as on the wall's Review button.
+private struct DeckCapsule: View {
+    let title: String
+    let count: Int
+    var onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.stack")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(title)
+                    .font(.body.weight(.semibold))
+                Text(count, format: .number)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .lineLimit(1)
+            .padding(.horizontal, 14)
+            .frame(height: 40)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .accessibilityLabel("\(title), \(count) cards")
+        .accessibilityHint("Reviews these cards.")
+    }
+}
+
+/// The words an answer offers to keep on the wall, under it once it is written: a glass capsule each, with its word in
+/// the answer's serif and its meaning, side by side, or one under the other when they don't fit (user, 2026-10-18, of
+/// four ways tried: "胶囊似乎可以的哦"). Tapped, the word goes on the wall as if typed there, and its capsule turns into
+/// a tick and the word, as it stays while the word is on the wall.
+private struct OfferCapsules: View {
+    let offers: [Chat.Offer]
+    /// The words on the wall, or on their way to it, as compared (`EntryStyle.key`).
+    let onWall: Set<String>
+    var onKeep: (String) -> Void
+
+    var body: some View {
+        // Always in one row (user, 2026-10-18, of two that didn't fit and went one under the other: "这个胶囊怎么是两行啊，
+        // 有点奇怪吧"): with their meanings if they fit so, else the words alone, else the first alone, cut short only if
+        // even it doesn't fit (two long phrases were both cut short). Chosen by how wide they are as offered, so a capsule
+        // turning into a tick, and shorter, leaves them as they were (chosen again, they were made again and came back in
+        // a blur).
+        let first = Array(offers.prefix(1))
+        ViewThatFits(in: .horizontal) {
+            fitted(offers, meanings: true)
+            fitted(offers, meanings: false)
+            fitted(first, meanings: true)
+            capsules(first, meanings: false)
+        }
+        .animation(.smooth(duration: 0.35), value: onWall)
+    }
+
+    private static let spacing: CGFloat = 8
+
+    /// The capsules, over the room they take as offered.
+    private func fitted(_ offers: [Chat.Offer], meanings: Bool) -> some View {
+        HStack(spacing: Self.spacing) { ForEach(offers) { label($0, kept: false, meaning: meanings) } }
+            .hidden()
+            .accessibilityHidden(true)
+            .overlay(alignment: .leading) { capsules(offers, meanings: meanings) }
+    }
+
+    private func capsules(_ offers: [Chat.Offer], meanings: Bool) -> some View {
+        // Together for their glass, but never run into one another.
+        GlassEffectContainer(spacing: 0) {
+            HStack(spacing: Self.spacing) {
+                ForEach(offers) { offer in
+                    let kept = onWall.contains(EntryStyle.key(offer.word))
+                    Button {
+                        if !kept { onKeep(offer.word) }
+                    } label: {
+                        label(offer, kept: kept, meaning: meanings)
+                            .contentShape(.capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(kept ? .regular : .regular.interactive(), in: .capsule)
+                    .accessibilityLabel(kept ? "\(offer.word), on the wall" : "Add \(offer.word), \(offer.meaning)")
+                }
+            }
+        }
+    }
+
+    /// A plus, the word in the answer's serif and, with `meaning`, its meaning; once kept, a tick and the word.
+    private func label(_ offer: Chat.Offer, kept: Bool, meaning: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: kept ? "checkmark" : "plus")
+                .font(.system(size: 14, weight: .semibold))
+                .contentTransition(.symbolEffect(.replace))
+                // As wide either way: the tick, wider than the plus, cut short a word laid out for the plus.
+                .frame(width: 16)
+            Text(offer.word)
+                .font(.system(.body, design: .serif).weight(.semibold))
+            if meaning && !kept {
+                Text(OfferClient.shortMeaning(offer.meaning))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .layoutPriority(-1)
+                    // Gone before the capsule's end comes past it: the glass cuts off what it goes over.
+                    .transition(.opacity.animation(.easeOut(duration: 0.12)))
+            }
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 14)
+        .frame(height: 40)
     }
 }
 

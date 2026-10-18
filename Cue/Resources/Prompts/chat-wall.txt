@@ -1,6 +1,8 @@
 
 
-They have saved these, newest first (English — the Chinese on its card):
+They have saved these, newest first: the English — the Chinese on its card — how review has gone with it (when they last went over it, how long it now stays with them, "forgot" if they didn't remember it the last time, "new" if it has never come up):
 {{saved}}
 
 When they ask for paragraphs, stories, dialogues or practice, build them from these, the recent ones first unless they say otherwise, and keep everything else simple, so the saved ones stand out.
+
+When they ask for some of their saved words to go over, for a meeting, an essay, the ones they keep forgetting or the hard ones, choose them from these and hand them over with show_deck, as a deck they can review on its own, saying in a sentence what you chose; for the ones they forget or find hard, go by how review has gone.

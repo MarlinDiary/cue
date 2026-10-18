@@ -10,6 +10,28 @@ nonisolated struct Chat: Codable {
         var id = UUID()
         var role: Role
         var text: String
+        /// What an answer offers to keep on the wall, once it is written (`OfferClient`).
+        var offers: [Offer]?
+        /// The wall's cards an answer handed over as a deck, to review on their own (`show_deck`).
+        var deck: Deck?
+    }
+
+    /// Some of the wall's cards AI chose and handed over as a deck, when asked for words to go over (user, 2026-10-18:
+    /// "开会之前把…相关的单词给我…写篇作文…形容词相关的给我…非常不熟的给我…然后它就可以给我一个卡片组"): its name, its
+    /// cards by their words' ids, and the words as AI named them in its call, to tell it in the conversation that follows.
+    struct Deck: Codable, Identifiable, Equatable, Hashable {
+        var title: String
+        var words: [UUID]
+        var names: [String]
+        var call: String
+        var id: String { call }
+    }
+
+    /// An English word or expression an answer turned on, and its meaning as short as on a card.
+    struct Offer: Codable, Identifiable, Equatable {
+        var word: String
+        var meaning: String
+        var id: String { word }
     }
 
     var messages: [Message] = []
@@ -36,6 +58,10 @@ final class Chats {
     /// Conversations with an answer being written, and why the last answer didn't come, if it didn't.
     private(set) var answering: Set<String> = []
     private(set) var failures: [String: String] = [:]
+    /// When the words each answer offers came, for those that came since the app started: they come in under it then.
+    private(set) var offeredAt: [Chat.Message.ID: Date] = [:]
+    /// When each answer's deck came, for those that came since the app started: it comes in under the answer then.
+    private(set) var dealtAt: [Chat.Message.ID: Date] = [:]
     /// What was being written in each conversation and not yet sent: still there when it is opened again, for as long
     /// as the app runs.
     var drafts: [String: String] = [:]
@@ -77,10 +103,12 @@ final class Chats {
         known[key] = Set(chat.messages.map(\.id))
     }
 
-    /// Asks `text` in the conversation, AI answering with what it knows of the wall or the word, `context`.
-    /// Returns the question as it stands in the conversation.
+    /// Asks `text` in the conversation, AI answering with what it knows of the wall or the word, `context`, perhaps with
+    /// a deck of the wall's cards, `saved`; once the answer is written, a word worth keeping that isn't among them may be
+    /// offered under it. Returns the question as it stands in the conversation.
     @discardableResult
-    func send(_ text: String, in key: String, context: ChatContext) -> Chat.Message.ID? {
+    func send(_ text: String, in key: String, context: ChatContext,
+              saved: [(text: String, id: UUID)] = []) -> Chat.Message.ID? {
         open(key)
         guard !answering.contains(key), var chat = loaded[key] else { return nil }
         let question = Chat.Message(role: .user, text: text)
@@ -94,29 +122,52 @@ final class Chats {
         answering.insert(key)
         save(key)
         tasks[key] = Task {
+            var written = false
             defer {
                 answering.remove(key)
                 tasks[key] = nil
                 // An answer that never began leaves nothing behind it.
-                if loaded[key]?.messages.last?.role == .assistant, loaded[key]?.messages.last?.text.isEmpty == true {
+                if let last = loaded[key]?.messages.last, last.role == .assistant, last.text.isEmpty, last.deck == nil {
                     loaded[key]?.messages.removeLast()
                 }
                 save(key)
+                if written {
+                    Task { await offer(in: key, answering: answer.id, question: text, saved: saved.map(\.text)) }
+                }
             }
             do {
                 let onDelta: @MainActor (String) -> Void = { delta in
                     guard let last = self.loaded[key]?.messages.indices.last else { return }
                     self.loaded[key]?.messages[last].text += delta
                 }
+                // The words AI named, as the wall's cards, in its order, each once; a word not on the wall is left out.
+                let ids = Dictionary(saved.map { (EntryStyle.key($0.text), $0.id) }, uniquingKeysWith: { first, _ in first })
+                let onDeck: @MainActor (String, String, [String]) -> Void = { call, title, names in
+                    var seen = Set<UUID>()
+                    let words = names.compactMap { ids[EntryStyle.key($0)] }.filter { seen.insert($0).inserted }
+                    guard !words.isEmpty, let last = self.loaded[key]?.messages.indices.last else { return }
+                    self.loaded[key]?.messages[last].deck = Chat.Deck(title: title, words: words, names: names, call: call)
+                    self.dealtAt[answer.id] = .now
+                }
                 #if DEBUG
                 // `-rehearseChat YES`: a long answer written here, in bursts as AI's come, to watch a conversation
                 // without paying for one.
                 if UserDefaults.standard.bool(forKey: "rehearseChat") {
-                    try await ChatClient.rehearse(short: text.count <= 6, onDelta: onDelta)
+                    // `-rehearseDeck "a,b,c"`: a short answer handing over those of the wall's words as a deck.
+                    if let names = UserDefaults.standard.string(forKey: "rehearseDeck") {
+                        try await ChatClient.rehearse(answer: "从你的墙上挑了几个形容词，写人、写景都用得上。先刷一遍，写的时候更容易想起来。",
+                                                      onDelta: onDelta)
+                        onDeck("call_rehearsal_\(answer.id)", "作文形容词",
+                               names.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+                    } else {
+                        try await ChatClient.rehearse(short: text.count <= 6, onDelta: onDelta)
+                    }
+                    written = true
                     return
                 }
                 #endif
-                try await ChatClient.stream(history, context: context, onDelta: onDelta)
+                try await ChatClient.stream(history, context: context, onDelta: onDelta, onDeck: onDeck)
+                written = true
             } catch is CancellationError {
             } catch let error as URLError where error.code == .cancelled {
             } catch {
@@ -124,6 +175,38 @@ final class Chats {
             }
         }
         return question.id
+    }
+
+    /// Looks over an answer just written for a word worth keeping, and offers it under the answer: none, usually; two at
+    /// most; never one already saved.
+    private func offer(in key: String, answering id: Chat.Message.ID, question: String, saved: [String]) async {
+        guard let answer = loaded[key]?.messages.first(where: { $0.id == id }), !answer.text.isEmpty else { return }
+        var found: [Chat.Offer]
+        #if DEBUG
+        // `-rehearseChat YES`: offers as for "candid 和 frank 有什么区别？", the first two not yet saved, without asking,
+        // a second after the answer or `-rehearseOfferDelay` seconds.
+        if UserDefaults.standard.bool(forKey: "rehearseChat") {
+            let delay = UserDefaults.standard.double(forKey: "rehearseOfferDelay")
+            try? await Task.sleep(for: .seconds(delay > 0 ? delay : 1))
+            // A rehearsed deck comes alone.
+            found = [.init(word: "frank", meaning: "adj. 直率的"), .init(word: "blunt", meaning: "adj. 说话生硬的"),
+                     .init(word: "outspoken", meaning: "adj. 直言不讳的"), .init(word: "forthright", meaning: "adj. 坦诚的"),
+                     .init(word: "upfront", meaning: "adj. 坦率的"), .init(word: "tactless", meaning: "adj. 说话不得体的")]
+            if UserDefaults.standard.string(forKey: "rehearseDeck") != nil { found = [] }
+        } else {
+            found = (try? await OfferClient.offers(question: question, answer: answer.text, saved: saved)) ?? []
+        }
+        #else
+        found = (try? await OfferClient.offers(question: question, answer: answer.text, saved: saved)) ?? []
+        #endif
+        let savedKeys = Set(saved.map(EntryStyle.key))
+        found = Array(found.filter { !savedKeys.contains(EntryStyle.key($0.word)) && !$0.word.isEmpty }.prefix(2))
+        guard !found.isEmpty, let index = loaded[key]?.messages.firstIndex(where: { $0.id == id }) else { return }
+        loaded[key]?.messages[index].offers = found
+        offeredAt[id] = .now
+        // Stored once they have come in: stored at once, the store's saving held the main thread as they grew.
+        try? await Task.sleep(for: .seconds(1))
+        save(key)
     }
 
     /// Stops the answer being written, keeping what has come of it.
@@ -222,11 +305,23 @@ final class Chats {
     private static let directory = URL.applicationSupportDirectory.appending(path: "Chats")
 }
 
-/// Talks to AI for `Chats`: the conversation so far goes up, and the answer comes back as it is written.
+/// Talks to AI for `Chats`: the conversation so far goes up, and the answer comes back as it is written. In the
+/// wall's conversation AI can hand over a deck of the wall's cards with its answer (`show_deck`), told back to it in the
+/// conversation that follows as the call it made.
 nonisolated enum ChatClient {
-    static func stream(_ messages: [Chat.Message], context: ChatContext,
-                       onDelta: @MainActor (String) -> Void) async throws {
-        let input = messages.map { ["role": $0.role.rawValue, "content": $0.text] }
+    static func stream(_ messages: [Chat.Message], context: ChatContext, onDelta: @MainActor (String) -> Void,
+                       onDeck: @MainActor (String, String, [String]) -> Void) async throws {
+        let input = messages.flatMap { message -> [[String: Any]] in
+            var items: [[String: Any]] = []
+            if !message.text.isEmpty { items.append(["role": message.role.rawValue, "content": message.text]) }
+            if let deck = message.deck,
+               let arguments = try? JSONSerialization.data(withJSONObject: ["title": deck.title, "words": deck.names]) {
+                items.append(["type": "function_call", "call_id": deck.call, "name": "show_deck",
+                              "arguments": String(decoding: arguments, as: UTF8.self)])
+                items.append(["type": "function_call_output", "call_id": deck.call, "output": "They have the deck."])
+            }
+            return items
+        }
         var request: URLRequest
         switch try AIAccess.require() {
         case .ownKey(let key):
@@ -235,14 +330,19 @@ nonisolated enum ChatClient {
             request.timeoutInterval = 120
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
+            var body: [String: Any] = [
                 "model": "gpt-6.1-sol",
                 "reasoning": ["effort": "low"],
                 "store": false,
                 "stream": true,
                 "instructions": context.instructions,
                 "input": input,
-            ] as [String: Any])
+            ]
+            if context.kind == .wall {
+                body["tools"] = [try JSONSerialization.jsonObject(with: Data(Prompts.text("deck-tool").utf8))]
+                body["parallel_tool_calls"] = false
+            }
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
         case .points:
             // The server puts the instructions together from the same prompts, around what the conversation is about.
             request = try CueServer.request("v1/chat", json: ["kind": context.kind.rawValue, "lines": context.lines,
@@ -260,6 +360,16 @@ nonisolated enum ChatClient {
             switch event["type"] as? String {
             case "response.output_text.delta":
                 if let delta = event["delta"] as? String { await onDelta(delta) }
+            case "response.output_item.done":
+                // A deck handed over: its name, and the words in it as AI named them.
+                guard let item = event["item"] as? [String: Any], item["type"] as? String == "function_call",
+                      item["name"] as? String == "show_deck", let call = item["call_id"] as? String,
+                      let arguments = (item["arguments"] as? String).flatMap({
+                          try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+                      }),
+                      let title = arguments["title"] as? String, let names = arguments["words"] as? [String]
+                else { continue }
+                await onDeck(call, title, names)
             case "response.completed":
                 return
             case "response.failed", "response.incomplete", "error":
@@ -279,8 +389,12 @@ extension ChatClient {
     /// coming 20 to 160 ms apart; `-rehearsePace 4` writes it four times as slowly. `short`: two lines, as to a question
     /// of a few characters AI couldn't make out.
     static func rehearse(short: Bool, onDelta: @MainActor (String) -> Void) async throws {
+        try await rehearse(answer: short ? "这句我没看懂，是语音输入识别错了吗？你可以再发一次。" : rehearsal, onDelta: onDelta)
+    }
+
+    /// `answer` written as AI might write it.
+    static func rehearse(answer: String, onDelta: @MainActor (String) -> Void) async throws {
         let pace = max(UserDefaults.standard.double(forKey: "rehearsePace"), 1)
-        let answer = short ? "这句我没看懂，是语音输入识别错了吗？你可以再发一次。" : rehearsal
         try await Task.sleep(for: .seconds(1.5))
         var rest = Substring(answer)
         while !rest.isEmpty {
@@ -311,6 +425,30 @@ extension ChatClient {
 }
 
 extension Chats {
+    /// `-reoffer YES`: asks again, of every answer in the conversation, what it offers, with the prompt as it is now, each
+    /// noted in the log as it comes, and the last round kept: to try the prompt on real answers without paying for them
+    /// again. `-reofferRuns n`: n rounds, to see how sure the offers are.
+    func reoffer(in key: String, saved: [String]) {
+        let messages = loaded[key]?.messages ?? []
+        let rounds = max(UserDefaults.standard.integer(forKey: "reofferRuns"), 1)
+        let savedKeys = Set(saved.map(EntryStyle.key))
+        Task {
+            for round in 1...rounds {
+                for (i, answer) in messages.enumerated() where answer.role == .assistant && i > 0 {
+                    let question = messages[i - 1].text
+                    let found = (try? await OfferClient.offers(question: question, answer: answer.text, saved: saved)) ?? []
+                    WallLog.note("reoffer \(question) -> " + found.map { "\($0.word) | \($0.meaning)" }.joined(separator: ", "))
+                    guard round == rounds, let index = loaded[key]?.messages.firstIndex(where: { $0.id == answer.id })
+                    else { continue }
+                    let kept = Array(found.filter { !savedKeys.contains(EntryStyle.key($0.word)) }.prefix(2))
+                    loaded[key]?.messages[index].offers = kept.isEmpty ? nil : kept
+                }
+            }
+            save(key)
+            WallLog.note("reoffer done")
+        }
+    }
+
     /// `n` questions, each with its answer, long and short in turn, for `-seedChat`: ids fixed by their place, so the
     /// conversation is the same each time it is read.
     static func seed(_ n: Int) -> [Chat.Message] {
@@ -343,9 +481,25 @@ nonisolated struct ChatContext {
 
 /// What AI knows going into a conversation.
 enum ChatPrompt {
-    /// For the wall's conversation: every word on it, newest first, with the Chinese on its card.
-    static func wall(_ words: [Word]) -> ChatContext {
-        ChatContext(kind: .wall, lines: words.compactMap { word in word.entry.map { "\(word.text) — \($0.summary)" } })
+    /// For the wall's conversation: every word on it, newest first, with the Chinese on its card and how review has
+    /// gone with it, so AI can choose the words a deck asked for by how well they are known.
+    static func wall(_ words: [Word], at now: Date = .now) -> ChatContext {
+        ChatContext(kind: .wall, lines: words.compactMap { word in
+            word.entry.map { "\(word.text) — \($0.summary) — \(review(of: word, at: now))" }
+        })
+    }
+
+    /// How review has gone with a word, in a few words: when it last came up, how long it now stays remembered
+    /// (`Recall`'s stability), and whether it was forgotten that time; or that it never has.
+    static func review(of word: Word, at now: Date) -> String {
+        guard let state = word.recall else { return "new" }
+        let days = { (n: Int) in n == 1 ? "1 day" : "\(n) days" }
+        let since = Int(now.timeIntervalSince(state.reviewedAt) / 86_400)
+        let stays = Int(state.stability.rounded())
+        var line = since == 0 ? "went over it today" : "went over it \(days(since)) ago"
+        line += stays < 1 ? ", stays less than a day" : ", stays \(days(stays))"
+        if state.forgotten == true { line += ", forgot" }
+        return line
     }
 
     /// For a word's conversation: everything its page says.

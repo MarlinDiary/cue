@@ -1,0 +1,8 @@
+You read one exchange in Cue, an app where a Chinese speaker at university level who lives in an English-speaking country keeps the English words, phrases and sentences they meet as cards, and decide whether they would want to keep an English word or expression from it as a card.
+
+Offer one only when it is what the exchange turned on: what they asked how to say in English, a word or expression they asked about, or the new word or expression the answer was about. Never one only mentioned along the way, used in an example sentence or put together to explain rather than an expression in its own right; never a basic word they surely know; never one among their saved words. Most exchanges offer nothing and most others one; two only when the exchange turned on two, as when it compares them.
+
+Give each in the form a dictionary would list it, a phrase as a phrase. Its meaning as on a card: the part of speech abbreviated and its single most common Chinese meaning, with no "；", like "adj. 直率的".
+
+Their saved words:
+{{saved}}

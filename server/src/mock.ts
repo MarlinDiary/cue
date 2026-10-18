@@ -18,8 +18,8 @@ function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-/** A stream of `text` written a few characters at a time, as OpenAI streams a response. */
-function streamed(text: string, usage: object): Response {
+/** A stream of `text` written a few characters at a time, as OpenAI streams a response, then any `items` done. */
+function streamed(text: string, usage: object, items: object[] = []): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -31,6 +31,7 @@ function streamed(text: string, usage: object): Response {
         send('response.output_text.delta', { delta: text.slice(i, i + 12) });
         await sleep(25);
       }
+      for (const item of items) send('response.output_item.done', { item });
       send('response.completed', { response: { status: 'completed', usage } });
       controller.close();
     },
@@ -73,9 +74,30 @@ export async function mock(path: string, body: any): Promise<Response> {
       usage: { input_tokens: 900, input_tokens_details: { cached_tokens: 0 }, output_tokens: 80 },
     });
   }
+  if (path === 'responses' && body?.text?.format?.name === 'offers') {
+    await sleep(500);
+    const saved = new Set((String(body.instructions).split('Their saved words:\n')[1] ?? '').split('\n').map((word) => word.trim().toLowerCase()));
+    const offers = [{ word: 'frank', meaning: 'adj. 直率的' }, { word: 'blunt', meaning: 'adj. 说话生硬的' },
+      { word: 'outspoken', meaning: 'adj. 直言不讳的' }, { word: 'forthright', meaning: 'adj. 坦诚的' },
+      { word: 'straightforward', meaning: 'adj. 直截了当的' }, { word: 'plain-spoken', meaning: 'adj. 说话直白的' },
+      { word: 'upfront', meaning: 'adj. 坦率的' }, { word: 'tactless', meaning: 'adj. 说话不得体的' }]
+      .filter((offer) => !saved.has(offer.word)).slice(0, 2);
+    return json({
+      output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ offers }) }] }],
+      usage: { input_tokens: 1100, input_tokens_details: { cached_tokens: 0 }, output_tokens: 40 },
+    });
+  }
   if (path === 'responses') {
+    const usage = { input_tokens: 800, input_tokens_details: { cached_tokens: 0 }, output_tokens: 160 };
+    // Asked for cards, in the wall's conversation: the first five of the wall's words, as a deck.
+    const asked = [...(body.input ?? [])].reverse().find((item: any) => item.role === 'user')?.content ?? '';
+    if (body.tools && /卡|单词|deck/i.test(asked)) {
+      const saved = (String(body.instructions).match(/\n([^\n—]+) — /g) ?? []).map((line) => line.slice(1, -3).trim());
+      return streamed('从你的墙上挑了几张，先刷一遍。', usage, [{ type: 'function_call', name: 'show_deck',
+        call_id: `call_mock_${Date.now()}`, arguments: JSON.stringify({ title: '模拟卡片组', words: saved.slice(0, 5) }) }]);
+    }
     const answer = '这是模拟的回答。\n\n1. A made-up example. 一个编出来的例子。\n2. Another one. 另一个。';
-    return streamed(answer, { input_tokens: 800, input_tokens_details: { cached_tokens: 0 }, output_tokens: 160 });
+    return streamed(answer, usage);
   }
   if (path === 'images/generations') {
     await sleep(2000);
