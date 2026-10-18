@@ -74,6 +74,16 @@ export async function mock(path: string, body: any): Promise<Response> {
       usage: { input_tokens: 900, input_tokens_details: { cached_tokens: 0 }, output_tokens: 80 },
     });
   }
+  if (path === 'responses' && body?.text?.format?.name === 'split') {
+    await sleep(400);
+    // The English words named in a line, each its own card when there are several; anything else whole.
+    const text = String(body.input);
+    const named = text.match(/[A-Za-z][A-Za-z' -]*[A-Za-z]/g)?.map((word) => word.trim()) ?? [];
+    return json({
+      output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ items: named.length > 1 ? named : [text] }) }] }],
+      usage: { input_tokens: 420, input_tokens_details: { cached_tokens: 0 }, output_tokens: 30 },
+    });
+  }
   if (path === 'responses' && body?.text?.format?.name === 'note') {
     await sleep(500);
     // Kept unless the question is a greeting-sized one.
@@ -124,6 +134,14 @@ export async function mock(path: string, body: any): Promise<Response> {
   if (path === 'audio/speech') {
     await sleep(300);
     return new Response(bytes(MP3), { headers: { 'Content-Type': 'audio/mpeg' } });
+  }
+  if (path === 'decisions' && body?.questions?.[0]?.name === 'count') {
+    await sleep(150);
+    // Several when it names more than one English word, as the split's mock would list them.
+    const named = String(body.input).match(/[A-Za-z][A-Za-z' -]*[A-Za-z]/g) ?? [];
+    const choice = named.length > 1 ? 'several' : 'one';
+    return json({ answers: [{ name: 'count', choice, confidence: 0.9, probabilities: [{ value: choice, probability: 0.9 }] }],
+      usage: { input_tokens: 300 } });
   }
   if (path === 'decisions') {
     await sleep(200);

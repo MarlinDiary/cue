@@ -19,6 +19,8 @@ export default {
         case 'POST /v1/decide': return await routes.decide(request, env, account);
         case 'POST /v1/offer': return await routes.offer(request, env, account);
         case 'POST /v1/note': return await routes.note(request, env, account);
+        case 'POST /v1/split': return await routes.split(request, env, account);
+        case 'POST /v1/count': return await routes.count(request, env, account);
         case 'POST /v1/purchase': return await routes.purchase(request, env, account);
         case 'POST /v1/dev/grant': return await routes.grant(request, env, account);
         default: throw new HttpError(404, 'not_found', 'Not found.');

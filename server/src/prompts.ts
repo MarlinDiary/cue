@@ -15,6 +15,10 @@ import offerSchema from '../../Cue/Resources/Prompts/offer-schema.txt';
 import deckTool from '../../Cue/Resources/Prompts/deck-tool.txt';
 import noteInstructions from '../../Cue/Resources/Prompts/note-instructions.txt';
 import noteSchema from '../../Cue/Resources/Prompts/note-schema.txt';
+import splitInstructions from '../../Cue/Resources/Prompts/split-instructions.txt';
+import splitSchema from '../../Cue/Resources/Prompts/split-schema.txt';
+import countInstructions from '../../Cue/Resources/Prompts/count-instructions.txt';
+import countChoices from '../../Cue/Resources/Prompts/count-choices.txt';
 
 /** A prompt with its {{placeholders}} filled in, as the app fills them (`Prompts.text`). */
 function fill(text: string, values: Record<string, string>): string {
@@ -46,4 +50,10 @@ export const prompts = {
     return fill(noteInstructions, { headword });
   },
   noteSchema: JSON.parse(noteSchema) as unknown,
+  /** For the separate things one line typed into the wall's field asks a card for. */
+  splitInstructions,
+  splitSchema: JSON.parse(splitSchema) as unknown,
+  /** Whether one line typed into the wall's field asks for one card or several: a quick question first. */
+  countInstructions,
+  countChoices: JSON.parse(countChoices) as unknown,
 };

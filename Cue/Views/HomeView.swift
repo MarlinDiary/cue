@@ -59,6 +59,11 @@ struct HomeView: View {
     @State private var input = ""
     /// Whether what is being typed is a card the wall has, asked as it is typed.
     @State private var lookahead = DuplicateCheck.Lookahead()
+    /// New cards waiting to come in after others typed with them at once, and how long after the room was made for
+    /// them (`addRest`).
+    @State private var dealing: [UUID: Double] = [:]
+    /// Whether what is being typed is several things, asked as the typing pauses too.
+    @State private var severalAhead = SplitClient.Lookahead()
     /// Set in Settings, and kept.
     @AppStorage(Order.storageKey) private var order: Order = .newest
     /// Whether this is the app's first launch here, read before anything marks it otherwise; and the syncing with
@@ -133,7 +138,7 @@ struct HomeView: View {
         NavigationStack(path: $path) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    CardGrid(items: shown, spacing: WallMetrics.gap, leaving: leaving, nudged: nudged,
+                    CardGrid(items: shown, spacing: WallMetrics.gap, leaving: leaving, dealing: dealing, nudged: nudged,
                              selection: selection, onSlide: slide(_:)) { word, cardWidth, selected in
                         // A tap opens the card, or while the wall is picking cards, picks it or puts it back. One card
                         // opens at a time: a second finger's card, let go of after, opened a page over the first.
@@ -294,7 +299,10 @@ struct HomeView: View {
                 }
             }
             // What is being typed is asked about as soon as the typing pauses, so Return finds the answer in.
-            .onChange(of: input) { lookahead.typed(input) { writtenCards } }
+            .onChange(of: input) {
+                lookahead.typed(input) { writtenCards }
+                severalAhead.typed(input)
+            }
             // The More button sits in the navigation bar, where the word page has its own, so the two line up. The
             // bar is never hidden: hiding it on the wall and showing it on the word page made the page's content
             // jump at the end of the zoom, and lose its buttons after a back swipe let go halfway.
@@ -491,8 +499,9 @@ struct HomeView: View {
             return
         }
         let asked = lookahead.take(text)
+        let several = severalAhead.take(text)
         input = ""
-        Task { await add(text, asked: asked) }
+        Task { await add(text, asked: asked, splitting: true, several: several) }
     }
 
     /// Adds what was typed as a new card at the top of the wall and starts its entry; a word the wall has a card for
@@ -507,39 +516,116 @@ struct HomeView: View {
     /// becomes that one, rather than the wall taking the new one away again ("这种先加入再消失的状况，很不优雅"; "变成
     /// 已有的那一张是一个好的思路"). Nothing is written or drawn for it until the quick answer is in. The same words typed
     /// again straight after are written after all: the user meant something new.
+    ///
+    /// Typed into the field (`splitting`), several things asked for at once are a card each (user, 2026-10-18: "用户…
+    /// 自然语言输了好几个东西…是不是可以加好几张卡片"): the card that went up becomes the first of them, still showing what
+    /// was typed while it waits, and the rest come in after it one by one, in the order typed (`addRest`), as soon as
+    /// it is known what they are ("发出去之后再判断也没有问题…判断好了之后把剩余的卡多出来"; `SplitClient`). Ten at most.
+    /// Whether it is several is asked first, quickly, as the typing paused (`several`) or now; only for several is the
+    /// card held while what they are is written out. `createdAt` places the card on the wall, the newest first;
+    /// `revealing` scrolls the wall to it.
     @discardableResult
-    private func add(_ typed: String, asked: Task<UUID?, Never>? = nil) async -> Word? {
+    private func add(_ typed: String, asked: Task<UUID?, Never>? = nil, splitting: Bool = false,
+                     several: Task<Bool, Never>? = nil, at createdAt: Date = .now,
+                     revealing: Bool = true) async -> Word? {
         let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         if let same = words.first(where: { $0.matches(text) }) {
-            show(same.id)
+            if revealing { show(same.id) }
             return nil
         }
         let cards = writtenCards
-        let word = Word(text: text)
+        let word = Word(text: text, createdAt: createdAt)
         word.request = text
         context.insert(word)
         try? context.save()
-        revealTarget = word.id
+        if revealing { revealTarget = word.id }
         lexicographer.expect(word)
-        if text != redirected {
-            let answer: UUID?
-            if let asked {
-                answer = await asked.value
+        // Whether it is a card the wall has in other words: asked as it was typed (`lookahead`), or now, while it is
+        // asked whether it is several things.
+        var checking: Task<UUID?, Never>? = text == redirected ? nil
+            : asked ?? Task { try? await DuplicateCheck.card(for: text, among: cards) }
+        var request = text
+        var isSeveral = false
+        if splitting, SplitClient.mayHoldSeveral(text) {
+            if let several {
+                isSeveral = await several.value
             } else {
-                answer = try? await DuplicateCheck.card(for: text, among: cards)
+                isSeveral = (try? await SplitClient.isSeveral(text)) ?? false
             }
-            if let answer, let existing = words.first(where: { $0.id == answer }) {
-                redirected = text
-                become(word, existing)
-                return nil
+        }
+        if isSeveral {
+            var seen = Set<String>()
+            let items = ((try? await SplitClient.items(in: text)) ?? []).filter { seen.insert(EntryStyle.key($0)).inserted }
+            if items.count > 1 {
+                // This card is the first of them, still showing what was typed while it waits.
+                request = items[0]
+                checking?.cancel()
+                checking = request == redirected ? nil
+                    : Task { try? await DuplicateCheck.card(for: request, among: cards) }
+                lexicographer.keepShowing(text, for: word)
+                word.request = request
+                // The rest wait, rather than go up, while the user tops up their points.
+                if let stop = AIGate.check(needing: Points.newWord * Double(items.count)) {
+                    gate = stop
+                } else {
+                    addRest(Array(items.dropFirst()), after: word)
+                }
+                if let same = words.first(where: { $0.id != word.id && $0.matches(request) }) {
+                    checking?.cancel()
+                    become(word, same)
+                    return nil
+                }
             }
+        }
+        return await settle(word, as: request, checking: checking) ? word : nil
+    }
+
+    /// A new card's last step: it turns into the card the wall has for `request` in other words, if the question about
+    /// it (`checking`) says so; otherwise AI writes it. Whether it is a new word.
+    @discardableResult
+    private func settle(_ word: Word, as request: String, checking: Task<UUID?, Never>?) async -> Bool {
+        if let checking, let answer = await checking.value, let existing = words.first(where: { $0.id == answer }) {
+            redirected = request
+            become(word, existing)
+            return false
         }
         redirected = nil
         // Whatever was typed, AI decides the headword: the card types it out when it comes.
         lexicographer.write(word)
-        return word
+        return true
     }
+
+    /// The rest of several things typed at once, after the card that went up for the first, in the order typed and just
+    /// after it on the wall: the wall makes room for them all at once, and they come in one after another, a moment
+    /// apart (user, 2026-10-18: "逐个的加进去"). Added one at a time, the wall moved along for each, its cards crossing
+    /// over each other from one column to the other as many times. One the wall has already isn't added again.
+    private func addRest(_ items: [String], after first: Word) {
+        let cards = writtenCards
+        var added: [(word: Word, request: String)] = []
+        for item in items where !words.contains(where: { $0.matches(item) }) {
+            // A thousandth of a second older than the one before it: the wall puts the newest first.
+            let word = Word(text: item, createdAt: first.createdAt.addingTimeInterval(-0.001 * Double(added.count + 1)))
+            word.request = item
+            dealing[word.id] = Self.dealt * Double(added.count)
+            context.insert(word)
+            lexicographer.expect(word)
+            added.append((word, item))
+        }
+        try? context.save()
+        for (word, request) in added {
+            let checking: Task<UUID?, Never>? = request == redirected ? nil
+                : Task { try? await DuplicateCheck.card(for: request, among: cards) }
+            Task { await settle(word, as: request, checking: checking) }
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(Self.dealt * Double(added.count) + 1))
+            for (word, _) in added { dealing[word.id] = nil }
+        }
+    }
+
+    /// How long after the one before it each of several cards typed at once comes in.
+    private static let dealt = 0.15
 
     /// The card just added for what was typed turns into `existing`, the card the wall has for that word already: it
     /// takes on that card's word, entry, picture and how well it is remembered, there at the top where it went up,
@@ -726,7 +812,22 @@ struct HomeView: View {
         if let text = defaults.string(forKey: "addWord") {
             try? await Task.sleep(for: .seconds(3))
             // `-openAfterAdd YES` opens the new word's page at once, to watch its entry stream in.
-            if let word = await add(text), defaults.bool(forKey: "openAfterAdd") { path = [word] }
+            if let word = await add(text, splitting: true), defaults.bool(forKey: "openAfterAdd") { path = [word] }
+        }
+        // `-splitLab "a|b|c"`: what each of those, typed into the field, would be split into (`SplitClient`), noted in
+        // the log, nothing added (it costs what the small model costs).
+        if let lab = defaults.string(forKey: "splitLab") {
+            for text in lab.split(separator: "|").map(String.init) {
+                var began = Date.now
+                let several = try? await SplitClient.isSeveral(text)
+                let asked = Date.now.timeIntervalSince(began)
+                began = .now
+                let items = (try? await SplitClient.items(in: text)) ?? ["(failed)"]
+                WallLog.note(String(format: "split %@ %.2f s, %.1f s ", several.map { $0 ? "several" : "one" } ?? "failed",
+                                    asked, Date.now.timeIntervalSince(began))
+                             + "\(text) -> " + items.joined(separator: " | "))
+            }
+            WallLog.note("split done")
         }
     }
     #else
@@ -903,6 +1004,9 @@ struct CardGrid<Item: Identifiable, Content: View>: View {
     /// Cards on their way out, which fade where they stand before the wall closes the gap. Given as data, not read
     /// inside `content`: a change read only there never redrew the grid, and the card never faded.
     var leaving: Set<Item.ID> = []
+    /// New cards that come in a while after the wall made room for them, by how long after: the rest of several things
+    /// typed at once, one after another (`HomeView.addRest`). Given as data for the same reason.
+    var dealing: [Item.ID: Double] = [:]
     /// A card being shown for what was typed, pressed once lightly; given as data for the same reason.
     var nudged: Item.ID? = nil
     /// While the wall is picking cards, the ones picked so far (nil otherwise), so each card can show whether it is:
@@ -924,10 +1028,13 @@ struct CardGrid<Item: Identifiable, Content: View>: View {
                     .scaleEffect(nudged == item.id ? 0.96 : 1)
                     .modifier(LeavingEffect(gone: gone))
                     .allowsHitTesting(!gone)
-                    // A new card blurs in. A card that goes is gone at once: by then it has faded away itself, or its
-                    // menu is dissolving it (a removal transition kept it on the wall, and the menu's copy of it with
-                    // it).
-                    .transition(AnyTransition.asymmetric(insertion: AnyTransition(.blurReplace), removal: .identity))
+                    // A new card blurs in, when its turn comes if it waits for one. A card that goes is gone at once:
+                    // by then it has faded away itself, or its menu is dissolving it (a removal transition kept it on
+                    // the wall, and the menu's copy of it with it).
+                    .transition(AnyTransition.asymmetric(
+                        insertion: dealing[item.id].map { AnyTransition(.blurReplace).animation(.smooth(duration: 0.5).delay($0)) }
+                            ?? AnyTransition(.blurReplace),
+                        removal: .identity))
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }

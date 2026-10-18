@@ -44,6 +44,12 @@ final class Lexicographer {
         arrivals[word.id] = Arrivals()
     }
 
+    /// Keeps `typed` as what a new word's card shows while it waits, whatever comes to be asked for it: the card that
+    /// went up for several things typed at once, asked now for the first of them (`HomeView.add`).
+    func keepShowing(_ typed: String, for word: Word) {
+        placeholders[word.id] = typed
+    }
+
     /// `rewrite` asks for a new AI entry even when the word already has a final one.
     func write(_ word: Word, rewrite: Bool = false) {
         guard let context = word.modelContext else { return }

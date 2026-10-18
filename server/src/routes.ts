@@ -26,6 +26,7 @@ const SPEECH_HOLD = 3_000;
 const DECIDE_HOLD = 2_000;
 const OFFER_HOLD = 2_000;
 const NOTE_HOLD = 2_000;
+const SPLIT_HOLD = 2_000;
 
 const insufficient = () => new HttpError(402, 'insufficient_points', 'Not enough points left.');
 
@@ -339,6 +340,54 @@ export async function note(request: Request, env: Env, account: Account): Promis
   }
   const cost = upstream.ok ? textCost(MODELS.note, usage) : 0;
   const balance = await settle(env, account.id, NOTE_HOLD, cost, 'note', cost);
+  return upstreamError(upstream.status, reply, balance);
+}
+
+/** Whether one line typed into the wall's field asks for one card or several, answered as the Decisions API answers. */
+export async function count(request: Request, env: Env, account: Account): Promise<Response> {
+  const body: any = await request.json();
+  const input = text(body.input, 'input', 4_000);
+  if (!(await reserve(env, account.id, DECIDE_HOLD))) throw insufficient();
+  const upstream = await openai(env, 'decisions', {
+    model: MODELS.decide,
+    input,
+    questions: [{ type: 'choice', name: 'count', instructions: prompts.countInstructions, choices: prompts.countChoices }],
+  });
+  const answer = await upstream.text();
+  let usage;
+  try {
+    usage = JSON.parse(answer)?.usage;
+  } catch {
+    usage = undefined;
+  }
+  // Only the input is billed.
+  const cost = upstream.ok ? Math.ceil((usage?.input_tokens ?? (input.length + 900) / 3) * 0.1) : 0;
+  const balance = await settle(env, account.id, DECIDE_HOLD, cost, 'count', cost);
+  return upstreamError(upstream.status, answer, balance);
+}
+
+/** The separate things one line typed into the wall's field asks a card for, answered as OpenAI answers. */
+export async function split(request: Request, env: Env, account: Account): Promise<Response> {
+  const body: any = await request.json();
+  const input = text(body.text, 'text', 4_000);
+  if (!(await reserve(env, account.id, SPLIT_HOLD))) throw insufficient();
+  const upstream = await openai(env, 'responses', {
+    model: MODELS.split,
+    reasoning: { effort: 'low' },
+    store: false,
+    instructions: prompts.splitInstructions,
+    input,
+    text: { format: { type: 'json_schema', name: 'split', strict: true, schema: prompts.splitSchema } },
+  });
+  const reply = await upstream.text();
+  let usage;
+  try {
+    usage = JSON.parse(reply)?.usage;
+  } catch {
+    usage = undefined;
+  }
+  const cost = upstream.ok ? textCost(MODELS.split, usage) : 0;
+  const balance = await settle(env, account.id, SPLIT_HOLD, cost, 'split', cost);
   return upstreamError(upstream.status, reply, balance);
 }
 

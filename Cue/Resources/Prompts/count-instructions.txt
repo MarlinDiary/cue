@@ -1,0 +1,1 @@
+The user typed this into Cue, their English vocabulary app, where each card is one English word, phrase or sentence, written from what was typed for it. It may be English or Chinese; a word, a phrase or a sentence; a question or request about what to say or how a word is used; or misspelled. Choose whether it asks for one card or several.
