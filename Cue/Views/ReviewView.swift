@@ -512,31 +512,35 @@ struct ReviewView: View {
         under = queue.next(among: pool, states: states, at: .now)
     }
 
-    /// Today's review so far: of the words due today, the share remembered; all of it when none is due. A word is due
-    /// once its chance of being remembered falls below 90%, or while it is forgotten and not remembered since
-    /// (`Recall.isDue`), so the ring goes back as well as on: as a word counted remembered is forgotten, or as more words
-    /// fall due (user, 2026-10-10,
-    /// after hearing that reviewing on past the words due adds next to nothing: "左下角弄一个绿色的那种圆环进度条？这个进度条
-    /// 可增可退？全完成就多个check？").
+    /// Today's review so far: of the words to review today, the share remembered today; all of it when there are none.
+    /// A word is to review today while it is forgotten and not remembered since, or if its chance of being remembered
+    /// falls below 90% before the day is out, this evening as well as now (`Recall.isDue` at the day's end); one
+    /// remembered today is done for the day, however its chance falls by tonight. So the ring goes back as well as on
+    /// (user, 2026-10-10, after hearing that reviewing on past the words due adds next to nothing: "左下角弄一个绿色的那种
+    /// 圆环进度条？这个进度条可增可退？全完成就多个check？"), but only as a word is forgotten, or as words are added that
+    /// are to be learnt today, never by itself as the day goes on (2026-10-18: "今天一天已经完成了…有时候我再看下来的时候，
+    /// 它会返回，就是变成没完成的状态"). Measured as it was then, a word forgotten in the morning and remembered a few cards
+    /// later fell due again five hours on (held a fifth of a day, as a new word is), and so did a word added that
+    /// morning, or one of several days falling due in the evening.
     private func measure() {
         let now = Date.now
+        let start = Recall.dayStart(at: now)
+        let rememberedToday = { (word: Word) in
+            states[word.id].map { $0.reviewedAt >= start && $0.forgotten != true } ?? false
+        }
         // A deck's: the share of its cards remembered today.
         if handed != nil {
-            let start = Recall.dayStart(at: now)
-            let done = pool.filter { word in
-                states[word.id].map { $0.reviewedAt >= start && $0.forgotten != true } ?? false
-            }.count
+            let done = pool.filter(rememberedToday).count
             progress = pool.isEmpty ? 1 : Double(done) / Double(pool.count)
             return
         }
-        let start = Recall.dayStart(at: now)
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? now
         var done = 0, due = 0
         for word in pool {
-            let state = states[word.id]
-            if Recall.isDue(state, since: word.createdAt, at: now) {
-                due += 1
-            } else if let state, state.reviewedAt >= start {
+            if rememberedToday(word) {
                 done += 1
+            } else if Recall.isDue(states[word.id], since: word.createdAt, at: end) {
+                due += 1
             }
         }
         progress = done + due == 0 ? 1 : Double(done) / Double(done + due)
