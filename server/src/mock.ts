@@ -74,6 +74,17 @@ export async function mock(path: string, body: any): Promise<Response> {
       usage: { input_tokens: 900, input_tokens_details: { cached_tokens: 0 }, output_tokens: 80 },
     });
   }
+  if (path === 'responses' && body?.text?.format?.name === 'note') {
+    await sleep(500);
+    // Kept unless the question is a greeting-sized one.
+    const question = String(body.input).split('\n')[1] ?? '';
+    const keep = question.length > 6;
+    return json({
+      output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ keep,
+        question: keep ? '这个词能用在正式邮件里吗？' : '', answer: keep ? '可以，这是模拟的要点。比如 Thank you for your candid feedback.' : '' }) }] }],
+      usage: { input_tokens: 900, input_tokens_details: { cached_tokens: 0 }, output_tokens: 60 },
+    });
+  }
   if (path === 'responses' && body?.text?.format?.name === 'offers') {
     await sleep(500);
     const saved = new Set((String(body.instructions).split('Their saved words:\n')[1] ?? '').split('\n').map((word) => word.trim().toLowerCase()));

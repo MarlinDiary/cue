@@ -1,0 +1,1 @@
+{"type":"object","properties":{"keep":{"type":"boolean"},"question":{"type":"string"},"answer":{"type":"string"}},"required":["keep","question","answer"],"additionalProperties":false}

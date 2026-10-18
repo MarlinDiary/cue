@@ -14,6 +14,9 @@ nonisolated struct Chat: Codable {
         var offers: [Offer]?
         /// The wall's cards an answer handed over as a deck, to review on their own (`show_deck`).
         var deck: Deck?
+        /// What a word's conversation can keep on the word's page from this answer and its question, once the answer is
+        /// written, if it is worth keeping (`NoteClient`).
+        var note: WordNote?
     }
 
     /// Some of the wall's cards AI chose and handed over as a deck, when asked for words to go over (user, 2026-10-18:
@@ -62,6 +65,8 @@ final class Chats {
     private(set) var offeredAt: [Chat.Message.ID: Date] = [:]
     /// When each answer's deck came, for those that came since the app started: it comes in under the answer then.
     private(set) var dealtAt: [Chat.Message.ID: Date] = [:]
+    /// When what each answer can keep on its word's page was known, for those since the app started: it comes in then.
+    private(set) var notedAt: [Chat.Message.ID: Date] = [:]
     /// What was being written in each conversation and not yet sent: still there when it is opened again, for as long
     /// as the app runs.
     var drafts: [String: String] = [:]
@@ -105,10 +110,11 @@ final class Chats {
 
     /// Asks `text` in the conversation, AI answering with what it knows of the wall or the word, `context`, perhaps with
     /// a deck of the wall's cards, `saved`; once the answer is written, a word worth keeping that isn't among them may be
-    /// offered under it. Returns the question as it stands in the conversation.
+    /// offered under it, and in the conversation about the word `headword`, what of the exchange is worth keeping on its
+    /// card. Returns the question as it stands in the conversation.
     @discardableResult
-    func send(_ text: String, in key: String, context: ChatContext,
-              saved: [(text: String, id: UUID)] = []) -> Chat.Message.ID? {
+    func send(_ text: String, in key: String, context: ChatContext, saved: [(text: String, id: UUID)] = [],
+              about headword: String? = nil) -> Chat.Message.ID? {
         open(key)
         guard !answering.contains(key), var chat = loaded[key] else { return nil }
         let question = Chat.Message(role: .user, text: text)
@@ -133,6 +139,9 @@ final class Chats {
                 save(key)
                 if written {
                     Task { await offer(in: key, answering: answer.id, question: text, saved: saved.map(\.text)) }
+                    if let headword {
+                        Task { await note(in: key, answering: answer.id, question: text, headword: headword) }
+                    }
                 }
             }
             do {
@@ -205,6 +214,32 @@ final class Chats {
         loaded[key]?.messages[index].offers = found
         offeredAt[id] = .now
         // Stored once they have come in: stored at once, the store's saving held the main thread as they grew.
+        try? await Task.sleep(for: .seconds(1))
+        save(key)
+    }
+
+    /// Looks over an answer just written in a word's conversation for what is worth keeping on its card, and offers it
+    /// under the answer: the question as it was meant and the gist of the answer; nothing for a greeting or small talk.
+    private func note(in key: String, answering id: Chat.Message.ID, question: String, headword: String) async {
+        guard let answer = loaded[key]?.messages.first(where: { $0.id == id }), !answer.text.isEmpty else { return }
+        let found: WordNote?
+        #if DEBUG
+        // `-rehearseChat YES`: a note for any question longer than a greeting, without asking.
+        if UserDefaults.standard.bool(forKey: "rehearseChat") {
+            try? await Task.sleep(for: .seconds(1.2))
+            found = question.count <= 6 ? nil : WordNote(
+                id: UUID(), question: "\(headword) 能用在正式邮件里吗？",
+                answer: "可以，语气坦诚但不失礼貌，常用来感谢对方的直言，比如 Thank you for your candid feedback.")
+        } else {
+            found = try? await NoteClient.note(about: headword, question: question, answer: answer.text)
+        }
+        #else
+        found = try? await NoteClient.note(about: headword, question: question, answer: answer.text)
+        #endif
+        guard let found, let index = loaded[key]?.messages.firstIndex(where: { $0.id == id }) else { return }
+        loaded[key]?.messages[index].note = found
+        notedAt[id] = .now
+        // Stored once it has come in, as the words offered are.
         try? await Task.sleep(for: .seconds(1))
         save(key)
     }

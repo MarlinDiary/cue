@@ -7,6 +7,7 @@ struct WordPage: View {
     @Bindable var word: Word
     /// Told whether the big headword has scrolled up under the bar, which then shows the word instead.
     var onTitleHidden: (Bool) -> Void = { _ in }
+    @Environment(\.modelContext) private var modelContext
 
     private let speech = Speech.shared
     private let illustrator = Illustrator.shared
@@ -116,10 +117,39 @@ struct WordPage: View {
                     if let etymology = entry.etymology {
                         section("Origin") { MixedText(etymology) }
                     }
-                    // Last, and only the question: a record of what was asked, since the whole page is the answer.
-                    if let askedQuestion {
+                    // Last: a record of what was asked as the word was added, only the question, since the whole page is
+                    // the answer; then what the user kept from the word's conversation, each question with the gist of
+                    // its answer, oldest first.
+                    let notes = word.notes
+                    if askedQuestion != nil || !notes.isEmpty {
                         section("You Asked") {
-                            Text(askedQuestion).font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 24) {
+                                if let askedQuestion {
+                                    Text(askedQuestion).font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                                }
+                                ForEach(notes) { note in
+                                    noteView(note)
+                                        // Deleted from its menu at once, as a card is, its lifted copy dissolving where
+                                        // it stands: the copy is its own view, as the source leaves in the action.
+                                        .contextMenu {
+                                            Button("Delete", systemImage: "trash", role: .destructive) {
+                                                word.notes.removeAll { $0.id == note.id }
+                                                try? modelContext.save()
+                                            }
+                                        } preview: {
+                                            noteView(note)
+                                                .padding(18)
+                                                .frame(width: UIScreen.main.bounds.width - 32, alignment: .leading)
+                                                // Its whole height: offered its ideal size, the answer was cut short.
+                                                .fixedSize(horizontal: false, vertical: true)
+                                                .background(Color(.systemBackground))
+                                        }
+                                        // Its Delete all in red, as the system's are: in the picture's colour, which
+                                        // the page tints with, its trash was brown.
+                                        .tint(.red)
+                                        .transition(.asymmetric(insertion: .opacity, removal: .identity))
+                                }
+                            }
                         }
                     }
                 } else {
@@ -394,6 +424,15 @@ struct WordPage: View {
         }
     }
 
+    /// A note kept from the word's conversation: the question in the record's grey, the gist of its answer under it.
+    private func noteView(_ note: WordNote) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(note.question).font(.body).lineSpacing(4).foregroundStyle(.secondary)
+            MixedText(note.answer)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     /// A section set apart by space rather than rules, under a small capitals heading, as dictionaries do.
     private func section<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -539,6 +578,10 @@ struct WordPager: View {
         .fullScreenCover(isPresented: $showingChat) {
             ChatView(topic: .word(word))
         }
+        #if DEBUG
+        // `-openWord <word> -openWordChat YES`: the word's conversation, opened with its page.
+        .onAppear { if UserDefaults.standard.bool(forKey: "openWordChat") { showingChat = true } }
+        #endif
         .modifier(ZoomsOut(of: word.id, in: zoom))
     }
 

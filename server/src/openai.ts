@@ -8,6 +8,7 @@ export const MODELS = {
   chat: 'gpt-6.1-sol',
   decide: 'gpt-6-luna',
   offer: 'gpt-6-luna',
+  note: 'gpt-6-luna',
   picture: 'gpt-image-2.5-sunburst',
   speech: 'gpt-4o-mini-tts',
 } as const;

@@ -24,6 +24,9 @@ final class Word {
     /// Left out of review by the user, from review's menu (user, 2026-10-09: "有些卡片…never appear again"): the card
     /// stays on the wall, and its page puts it back.
     var hiddenFromReview: Bool = false
+    /// JSON-encoded `[WordNote]`: what the user asked about the word in its conversation and chose to keep on its page,
+    /// each with the gist of its answer.
+    var notesData: Data?
 
     init(text: String, entry: WordEntry? = nil, sentence: String = "", source: String = "", createdAt: Date = .now) {
         self.text = text
@@ -41,6 +44,12 @@ final class Word {
     var recall: Recall.State? {
         get { recallData.flatMap { try? JSONDecoder().decode(Recall.State.self, from: $0) } }
         set { recallData = newValue.flatMap { try? JSONEncoder().encode($0) } }
+    }
+
+    /// What the user kept on the page from the word's conversation, oldest first.
+    var notes: [WordNote] {
+        get { notesData.flatMap { try? JSONDecoder().decode([WordNote].self, from: $0) } ?? [] }
+        set { notesData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue) }
     }
 
     /// Still showing the user's own words until AI decides the English headword.
@@ -181,6 +190,16 @@ extension WordEntry.Part {
     var label: String {
         pos
     }
+}
+
+/// A question asked about a word in its conversation, put as it was meant, and the gist of its answer: what the user
+/// can keep on the word's page, under You Asked (user, 2026-10-18: "把我们的这个Q&A…加入到卡片里面，形成永久性的东西…
+/// Q…是formatted之后的…A…in summary的"). Offered by AI under an answer worth keeping (`NoteClient`), never under a
+/// greeting.
+nonisolated struct WordNote: Codable, Identifiable, Equatable, Hashable {
+    var id: UUID
+    var question: String
+    var answer: String
 }
 
 extension WordEntry {

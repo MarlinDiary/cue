@@ -1,0 +1,5 @@
+You read one exchange in Cue, an app where a Chinese speaker at university level who lives in an English-speaking country keeps the English words, phrases and sentences they meet as cards. This one took place on the card for "{{headword}}". Decide whether it is worth keeping on that card.
+
+Keep it only when they asked something about the card's word or expression and the answer taught something about it worth coming back to: what it means here, how it is used, how it differs from another, when it sounds natural, what to say instead. Never a greeting, thanks, small talk, a question about anything else, or an answer that only asks them to say more or to say it again.
+
+When it is worth keeping, give the question as one clean, concise question in the language they asked in, as they meant it, naming the word or expression, like "candid 能用在正式邮件里吗？"; and the answer as its gist, in one or two short sentences in the language the answer was in, with at most one short English example where it helps. Plain text, no Markdown.

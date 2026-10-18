@@ -25,6 +25,7 @@ const CHAT_HOLD = 30_000;
 const SPEECH_HOLD = 3_000;
 const DECIDE_HOLD = 2_000;
 const OFFER_HOLD = 2_000;
+const NOTE_HOLD = 2_000;
 
 const insufficient = () => new HttpError(402, 'insufficient_points', 'Not enough points left.');
 
@@ -311,6 +312,33 @@ export async function offer(request: Request, env: Env, account: Account): Promi
   }
   const cost = upstream.ok ? textCost(MODELS.offer, usage) : 0;
   const balance = await settle(env, account.id, OFFER_HOLD, cost, 'offer', cost);
+  return upstreamError(upstream.status, reply, balance);
+}
+
+/** What of an exchange in a word's conversation is worth keeping on its card, answered as OpenAI answers. */
+export async function note(request: Request, env: Env, account: Account): Promise<Response> {
+  const body: any = await request.json();
+  const headword = text(body.headword, 'headword', 400);
+  const question = text(body.question, 'question', 12_000);
+  const answer = text(body.answer, 'answer', 24_000);
+  if (!(await reserve(env, account.id, NOTE_HOLD))) throw insufficient();
+  const upstream = await openai(env, 'responses', {
+    model: MODELS.note,
+    reasoning: { effort: 'low' },
+    store: false,
+    instructions: prompts.note(headword),
+    input: `Question:\n${question}\n\nAnswer:\n${answer}`,
+    text: { format: { type: 'json_schema', name: 'note', strict: true, schema: prompts.noteSchema } },
+  });
+  const reply = await upstream.text();
+  let usage;
+  try {
+    usage = JSON.parse(reply)?.usage;
+  } catch {
+    usage = undefined;
+  }
+  const cost = upstream.ok ? textCost(MODELS.note, usage) : 0;
+  const balance = await settle(env, account.id, NOTE_HOLD, cost, 'note', cost);
   return upstreamError(upstream.status, reply, balance);
 }
 

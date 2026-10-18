@@ -42,6 +42,8 @@ struct ChatView: View {
     @Environment(\.keepOnWall) private var keepOnWall
     /// The deck an answer handed over that is being reviewed (`DeckCapsule`).
     @State private var reviewing: Chat.Deck?
+    /// Where what is kept on a word's page from its conversation is saved.
+    @Environment(\.modelContext) private var modelContext
     /// Whether the keyboard is going as a question is asked: the question goes up to the top with it (`riseWithKeyboard`).
     @State private var risesWithKeyboard = false
     /// Whether the conversation is laid out: from just after the page began to come up (`onAppear`).
@@ -93,6 +95,11 @@ struct ChatView: View {
         }
     }
 
+    /// The word the conversation is about, if it is about one: its page keeps what the user chooses of the conversation.
+    private var topicWord: Word? {
+        if case .word(let word) = topic { word } else { nil }
+    }
+
     private var title: String {
         switch topic {
         case .wall: String(localized: "Ask AI")
@@ -122,8 +129,10 @@ struct ChatView: View {
         // The words answers have offered that are on the wall or on their way to it, whose capsules show ticks: the
         // wall is read only with offers in the conversation, so it isn't laid out again each time a card is written.
         let onWall = messages.contains { $0.offers != nil } ? wallKeys.union(keeping) : keeping
-        // The wall's cards, for the decks answers handed over: read only with a deck in the conversation.
-        let wall = WallNow(keys: onWall, ids: messages.contains { $0.deck != nil } ? Set(words.map(\.id)) : [])
+        // The wall's cards, for the decks answers handed over: read only with a deck in the conversation; and what the
+        // word's page keeps, for the notes answers offer.
+        let wall = WallNow(keys: onWall, ids: messages.contains { $0.deck != nil } ? Set(words.map(\.id)) : [],
+                           noted: Set(topicWord?.notes.map(\.id) ?? []))
         // Read out here, around everything, without the keyboard: the screen, which doesn't change as the keyboard
         // moves. The keyboard is `keyboardRoom`.
         GeometryReader { screen in
@@ -576,8 +585,9 @@ struct ChatView: View {
     /// Space between a question and its answer, and above a question.
     private static let answerGap: CGFloat = 20
     private static let questionGap: CGFloat = 36
-    /// Space between an answer and the words it offers under it.
+    /// Space between an answer and the words it offers under it, and between two rows of what comes under it.
     private static let offerGap: CGFloat = 22
+    private static let capsuleGap: CGFloat = 10
 
     /// The space above a message: an answer's, close under its question; a question's, further from the answer before
     /// it; none above the first.
@@ -611,10 +621,12 @@ struct ChatView: View {
     }
 
     /// The wall as the conversation shows it: the words on it, or on their way to it, as compared (`EntryStyle.key`),
-    /// for the words answers offer; its cards, for the decks they hand over, which count only those still on it.
+    /// for the words answers offer; its cards, for the decks they hand over, which count only those still on it; and
+    /// the notes the word's page keeps, by id, for the notes answers offer.
     private struct WallNow {
         var keys: Set<String>
         var ids: Set<UUID>
+        var noted: Set<UUID>
     }
 
     /// Where the conversation is scrolled to, as `onScrollGeometryChange` reports it.
@@ -666,10 +678,16 @@ struct ChatView: View {
                             }
                         }
                     }
+                    if let note = message.note, !writing, topicWord != nil {
+                        Unfolding(since: chats.notedAt[message.id]) {
+                            NoteCapsule(kept: wall.noted.contains(note.id)) { keepNote(note) }
+                                .padding(.top, Self.offerGap)
+                        }
+                    }
                     if let offers = message.offers, !writing, keepOnWall != nil {
                         Unfolding(since: chats.offeredAt[message.id]) {
                             OfferCapsules(offers: offers, onWall: wall.keys, onKeep: keep)
-                                .padding(.top, Self.offerGap)
+                                .padding(.top, message.note == nil ? Self.offerGap : Self.capsuleGap)
                         }
                     }
                 }
@@ -719,9 +737,14 @@ struct ChatView: View {
                                 .opacity(after)
                         }
                     }
+                    if let note = message.note, topicWord != nil {
+                        NoteCapsule(kept: wall.noted.contains(note.id)) {}
+                            .padding(.top, Self.offerGap)
+                            .opacity(after)
+                    }
                     if let offers = message.offers, keepOnWall != nil {
                         OfferCapsules(offers: offers, onWall: wall.keys, onKeep: { _ in })
-                            .padding(.top, Self.offerGap)
+                            .padding(.top, message.note == nil ? Self.offerGap : Self.capsuleGap)
                             .opacity(after)
                     }
                 }
@@ -785,6 +808,13 @@ struct ChatView: View {
         keepOnWall(word)
     }
 
+    /// Keeps what an answer offers on the word's page, under You Asked.
+    private func keepNote(_ note: WordNote) {
+        guard let topicWord, !topicWord.notes.contains(where: { $0.id == note.id }) else { return }
+        topicWord.notes.append(note)
+        try? modelContext.save()
+    }
+
     /// The wall's words and what was typed for them, as compared (`EntryStyle.key`).
     private var wallKeys: Set<String> {
         Set(words.flatMap { [$0.text, $0.request].compactMap { $0 }.map(EntryStyle.key) })
@@ -798,7 +828,8 @@ struct ChatView: View {
     private func ask(_ question: String) {
         let first = chats.messages(in: key).isEmpty
         lifting = first
-        asked = chats.send(question, in: key, context: context, saved: words.map { (text: $0.text, id: $0.id) })
+        asked = chats.send(question, in: key, context: context, saved: words.map { (text: $0.text, id: $0.id) },
+                           about: topicWord?.text)
         // The question goes up with the keyboard as it goes (`riseWithKeyboard`); without one on the screen, by itself.
         risesWithKeyboard = keyboardUp && !first
         focused = false
@@ -870,6 +901,36 @@ private struct Unfolding<Content: View>: View {
     private static var duration: Double { 0.5 }
     /// How long it takes to grow: the spring is within half a percent of its height by then.
     private static var growing: Double { duration * 1.3 }
+}
+
+/// What a word's conversation can keep on its page from an answer and its question (`WordNote`), under the answer: one
+/// glass capsule, as the words answers offer are; tapped, the note goes under You Asked on the word's page, and the
+/// capsule says so, as it does while the note is there (user, 2026-10-18).
+private struct NoteCapsule: View {
+    var kept: Bool
+    var onKeep: () -> Void
+
+    var body: some View {
+        Button {
+            if !kept { onKeep() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: kept ? "checkmark" : "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 16)
+                Text(kept ? "Added to Card" : "Add to Card")
+                    .font(.body.weight(.semibold))
+            }
+            .lineLimit(1)
+            .padding(.horizontal, 14)
+            .frame(height: 40)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(kept ? .regular : .regular.interactive(), in: .capsule)
+        .animation(.smooth(duration: 0.35), value: kept)
+    }
 }
 
 /// A deck an answer handed over (`Chat.Deck`), under it: one glass capsule, as the words answers offer are, with the

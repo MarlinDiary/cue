@@ -13,6 +13,8 @@ import speechInstructions from '../../Cue/Resources/Prompts/speech-instructions.
 import offerInstructions from '../../Cue/Resources/Prompts/offer-instructions.txt';
 import offerSchema from '../../Cue/Resources/Prompts/offer-schema.txt';
 import deckTool from '../../Cue/Resources/Prompts/deck-tool.txt';
+import noteInstructions from '../../Cue/Resources/Prompts/note-instructions.txt';
+import noteSchema from '../../Cue/Resources/Prompts/note-schema.txt';
 
 /** A prompt with its {{placeholders}} filled in, as the app fills them (`Prompts.text`). */
 function fill(text: string, values: Record<string, string>): string {
@@ -39,4 +41,9 @@ export const prompts = {
   offerSchema: JSON.parse(offerSchema) as unknown,
   /** How AI hands over a deck of the wall's cards in the wall's conversation (`show_deck`). */
   deckTool: JSON.parse(deckTool) as unknown,
+  /** For what of an exchange about a word is worth keeping on its card. */
+  note(headword: string): string {
+    return fill(noteInstructions, { headword });
+  },
+  noteSchema: JSON.parse(noteSchema) as unknown,
 };
