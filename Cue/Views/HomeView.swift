@@ -66,6 +66,9 @@ struct HomeView: View {
     @State private var severalAhead = SplitClient.Lookahead()
     /// Set in Settings, and kept.
     @AppStorage(Order.storageKey) private var order: Order = .newest
+    /// Whether the wall is a list rather than cards, from its menu, and kept (user, 2026-10-18: "首页都是卡片嘛，我们最好
+    /// 是不是要再做一个list view").
+    @AppStorage("viewAsList") private var asList = false
     /// Whether this is the app's first launch here, read before anything marks it otherwise; and the syncing with
     /// iCloud, which the sample words wait for.
     @State private var firstLaunch = SampleWords.isFirstLaunch
@@ -138,53 +141,67 @@ struct HomeView: View {
         NavigationStack(path: $path) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    CardGrid(items: shown, spacing: WallMetrics.gap, leaving: leaving, dealing: dealing, nudged: nudged,
-                             selection: selection, onSlide: slide(_:)) { word, cardWidth, selected in
-                        // A tap opens the card, or while the wall is picking cards, picks it or puts it back. One card
-                        // opens at a time: a second finger's card, let go of after, opened a page over the first.
-                        Button {
-                            if selected != nil { toggle(word) } else if path.isEmpty { path.append(word) }
-                        } label: {
-                            WordCard(word: word)
-                                .matchedTransitionSource(id: word.id, in: zoom) { source in
-                                    // Tell the zoom where it lands: the card's own shape and colour,
-                                    // so it doesn't shrink into a square and snap at the end.
-                                    source
-                                        .background(Color(.secondarySystemGroupedBackground))
-                                        .clipShape(RoundedRectangle(cornerRadius: cardWidth * CardMetrics.radiusRatio, style: .continuous))
+                    Group {
+                        if asList {
+                            wordList(shown)
+                                .padding(.bottom, 16)
+                                .transition(.opacity)
+                        } else {
+                            CardGrid(items: shown, spacing: WallMetrics.gap, leaving: leaving, dealing: dealing, nudged: nudged,
+                                     selection: selection, onSlide: slide(_:)) { word, cardWidth, selected in
+                                // A tap opens the card, or while the wall is picking cards, picks it or puts it back. One card
+                                // opens at a time: a second finger's card, let go of after, opened a page over the first.
+                                Button {
+                                    if selected != nil { toggle(word) } else if path.isEmpty { path.append(word) }
+                                } label: {
+                                    WordCard(word: word)
+                                        .matchedTransitionSource(id: word.id, in: zoom) { source in
+                                            // Tell the zoom where it lands: the card's own shape and colour,
+                                            // so it doesn't shrink into a square and snap at the end.
+                                            source
+                                                .background(Color(.secondarySystemGroupedBackground))
+                                                .clipShape(RoundedRectangle(cornerRadius: cardWidth * CardMetrics.radiusRatio, style: .continuous))
+                                        }
+                                        .overlay(alignment: .bottomTrailing) {
+                                            if let selected {
+                                                SelectionCheck(selected: selected, scale: cardWidth / CardMetrics.baseWidth)
+                                                    .transition(.blurReplace)
+                                            }
+                                        }
                                 }
-                                .overlay(alignment: .bottomTrailing) {
-                                    if let selected {
-                                        SelectionCheck(selected: selected, scale: cardWidth / CardMetrics.baseWidth)
-                                            .transition(.blurReplace)
-                                    }
+                                .buttonStyle(CardPressStyle { pressed in
+                                    if selected == nil { cardPress.press(word.id, pressed) }
+                                })
+                                .modifier(CardPressLock(press: cardPress, id: word.id, picking: selected != nil))
+                                .accessibilityAddTraits(selected == true ? .isSelected : [])
+                                // The long-press preview keeps the card's own corners instead of the system's default
+                                // smaller ones.
+                                .contentShape(.contextMenuPreview, CardShape())
+                                // Lifted as a card of its own rather than the card itself, so when Delete takes the card
+                                // off the wall, the lifted one still shows the word as it dissolves: lifting the card
+                                // itself, the lifted copy went blank the moment the card left.
+                                .contextMenu {
+                                    // Nothing while picking cards: a long press does nothing then.
+                                    if selected == nil { menu(for: word) }
+                                } preview: {
+                                    WordCard(word: word)
+                                        .frame(width: cardWidth, height: cardWidth / CardMetrics.aspect)
                                 }
+                                .id(word.id)
+                            }
+                            .padding(.horizontal, WallMetrics.margin)
+                            .padding(.top, 3)
+                            .padding(.bottom, 16)
+                            .transition(.opacity)
                         }
-                        .buttonStyle(CardPressStyle { pressed in
-                            if selected == nil { cardPress.press(word.id, pressed) }
-                        })
-                        .modifier(CardPressLock(press: cardPress, id: word.id, picking: selected != nil))
-                        .accessibilityAddTraits(selected == true ? .isSelected : [])
-                        // The long-press preview keeps the card's own corners instead of the system's default
-                        // smaller ones.
-                        .contentShape(.contextMenuPreview, CardShape())
-                        // Lifted as a card of its own rather than the card itself, so when Delete takes the card
-                        // off the wall, the lifted one still shows the word as it dissolves: lifting the card
-                        // itself, the lifted copy went blank the moment the card left.
-                        .contextMenu {
-                            // Nothing while picking cards: a long press does nothing then.
-                            if selected == nil { menu(for: word) }
-                        } preview: {
-                            WordCard(word: word)
-                                .frame(width: cardWidth, height: cardWidth / CardMetrics.aspect)
-                        }
-                        .id(word.id)
                     }
-                    .padding(.horizontal, WallMetrics.margin)
-                    .padding(.top, 3)
-                    .padding(.bottom, 16)
                     .background { ScrollViewProbe { wallScroll.found($0) } }
                 }
+                // A scroll view of its own for each, made as the wall turns from the one to the other: the list's name
+                // stands large over the list only in one made under it. Turned in the one there was, the name stood
+                // over the list's first words, as the list didn't move down under it.
+                .id(asList)
+                .transition(.opacity)
                 .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { inset in
                     // While the keyboard is up SwiftUI may take from the top inset to make room for it: only a larger
                     // value is the bar's own then (as in the conversation, `ChatView.top`).
@@ -253,7 +270,11 @@ struct HomeView: View {
             .scrollDismissesKeyboard(.interactively)
             // The gray runs on behind the keyboard. A plain colour background stops at the keyboard's top, and the
             // window's white then shows in the keyboard's rounded corners and through its glass.
-            .background { Color(.systemGroupedBackground).ignoresSafeArea() }
+            .background { Color(asList ? .systemBackground : .systemGroupedBackground).ignoresSafeArea() }
+            // A list has its name over it, as lists do, large until it is scrolled; the cards have none, as Siri's wall
+            // (user, 2026-10-18: "顶部的话是不是要跟正常的toolbar一样要有这个名字啊，否则是头上空空的感觉").
+            .navigationTitle(asList ? String(localized: "Words") : "")
+            .navigationBarTitleDisplayMode(asList ? .large : .inline)
             // No room at the bottom but the wall's own (`BarRoom`), kept while picking cards, when the bar is gone, so the
             // wall doesn't move as picking starts and ends.
             .ignoresSafeArea(.all, edges: .bottom)
@@ -324,7 +345,9 @@ struct HomeView: View {
                 // Deleted from its page: back to the wall first, onto the card (about 0.15 s), which then leaves
                 // after a beat, so the eye has found it. Turned to another word, the wall behind keeps that word's
                 // card in view, for the page to close into.
-                WordPager(word: word, zoom: zoom, neighbors: neighbors, onShow: { revealTarget = $0.id }) { deleted in
+                // Out of its card, zoomed; out of a list's line, pushed, as lists open theirs: zoomed with no card to come
+                // out of, it grew from the middle of the screen.
+                WordPager(word: word, zoom: asList ? nil : zoom, neighbors: neighbors, onShow: { revealTarget = $0.id }) { deleted in
                     path.removeAll()
                     remove([deleted], after: .milliseconds(300))
                 }
@@ -437,8 +460,43 @@ struct HomeView: View {
             }
     }
 
+    /// The wall as a list: a line for each word, opened, picked and deleted as its card is, and lifted by a long press
+    /// into its card, with its menu.
+    private func wordList(_ shown: [Word]) -> some View {
+        WordList(items: shown, leaving: leaving, dealing: dealing, nudged: nudged) { word in
+            let selected = selection.map { $0.contains(word.id) }
+            Button {
+                if selected != nil { toggle(word) } else if path.isEmpty { path.append(word) }
+            } label: {
+                HStack(spacing: 12) {
+                    if let selected {
+                        SelectionCheck(selected: selected, scale: 1).padding(-14)
+                    }
+                    WordRow(word: word)
+                }
+                .padding(.horizontal, WordList<Word, EmptyView>.inset)
+                .contentShape(.rect)
+            }
+            .buttonStyle(RowPressStyle())
+            .accessibilityAddTraits(selected == true ? .isSelected : [])
+            .contextMenu {
+                if selected == nil { menu(for: word) }
+            } preview: {
+                WordCard(word: word)
+                    .frame(width: 240, height: 240 / CardMetrics.aspect)
+            }
+            .id(word.id)
+        }
+    }
+
     private func moreButton(empty: Bool) -> some View {
         Menu {
+            // As Notes and Files offer theirs, first.
+            Section {
+                Button(asList ? "View as Cards" : "View as List", systemImage: asList ? "square.grid.2x2" : "list.bullet") {
+                    withAnimation(.smooth(duration: 0.3)) { asList.toggle() }
+                }
+            }
             Button("Select", systemImage: "checkmark.circle", action: startSelecting)
                 .disabled(empty)
             Button("Settings", systemImage: "gearshape") { showingSettings = true }
@@ -941,9 +999,81 @@ struct HomeView: View {
     /// it stayed, as it can't be scrolled sideways back.
     private func reveal(_ id: UUID, with proxy: ScrollViewProxy) {
         guard let index = visibleWords.firstIndex(where: { $0.id == id }) else { return }
-        let rows = (visibleWords.count + 1) / 2
-        let place = rows > 1 ? Double(index / 2) / Double(rows - 1) : 0
+        // A list's rows are one word each; the cards' two.
+        let perRow = asList ? 1 : 2
+        let rows = (visibleWords.count + perRow - 1) / perRow
+        let place = rows > 1 ? Double(index / perRow) / Double(rows - 1) : 0
         withAnimation(.smooth) { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: place)) }
+    }
+}
+
+/// The wall as a list (`HomeView`, View as List): a line for each word, with a hairline between, in a stack of its own
+/// in the wall's scroll view, which keeps the wall's keyboard and scrolling as they are. New words come in, and
+/// deleted ones go, as cards do on the wall.
+struct WordList<Item: Identifiable, Content: View>: View {
+    var items: [Item]
+    var leaving: Set<Item.ID> = []
+    /// New words that come in a while after the list made room for them, by how long after (`CardGrid.dealing`).
+    var dealing: [Item.ID: Double] = [:]
+    /// A word being shown for what was typed: its line lights up for a moment, as a tapped one does.
+    var nudged: Item.ID? = nil
+    @ViewBuilder var content: (Item) -> Content
+
+    /// How far in from the screen's sides a line's words and its hairline start.
+    static var inset: CGFloat { 20 }
+
+    var body: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(items) { item in
+                let gone = leaving.contains(item.id)
+                content(item)
+                    .background(nudged == item.id ? Color(.systemFill) : .clear)
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(.separator).frame(height: 1 / 3).padding(.leading, Self.inset)
+                    }
+                    .modifier(LeavingEffect(gone: gone))
+                    .allowsHitTesting(!gone)
+                    .transition(AnyTransition.asymmetric(
+                        insertion: dealing[item.id].map { AnyTransition(.blurReplace).animation(.smooth(duration: 0.5).delay($0)) }
+                            ?? AnyTransition(.blurReplace),
+                        removal: .identity))
+            }
+        }
+        .animation(.smooth(duration: 0.5), value: items.map(\.id))
+    }
+}
+
+/// A word as the wall lists it: its English and, across from it, the Chinese on its card, as a glossary sets them (user,
+/// 2026-10-18, of three ways tried: "我觉得像词汇表挺好的"). A word still being written shows what was typed, in grey,
+/// until its headword comes.
+struct WordRow: View {
+    let word: Word
+
+    var body: some View {
+        let generation = Lexicographer.shared.generation(for: word)
+        let headword = generation.map { $0.headword } ?? word.text
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(headword ?? generation?.placeholder ?? word.text)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(headword == nil ? .secondary : .primary)
+                .lineLimit(1)
+            Spacer(minLength: 12)
+            if let summary = generation?.summary ?? word.entry?.summary {
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 11)
+    }
+}
+
+/// A line of a list as it is pressed: lit up grey, as the system's lists light up theirs.
+struct RowPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Color(.systemFill) : .clear)
     }
 }
 
